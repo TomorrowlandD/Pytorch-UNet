@@ -19,8 +19,8 @@ from unet import UNet
 from utils.data_loading import BasicDataset, CarvanaDataset
 from utils.dice_score import dice_loss
 
-dir_img = Path('./data/imgs/')
-dir_mask = Path('./data/masks/')
+dir_img = Path('./data/imgs/')      # 原始输入图片目录，Dataset 会从这里读取 image。
+dir_mask = Path('./data/masks/')    # 标注 mask 目录，Dataset 会从这里读取每张 image 对应的监督标签。
 dir_checkpoint = Path('./checkpoints/')
 
 
@@ -38,18 +38,20 @@ def train_model(
         momentum: float = 0.999,
         gradient_clipping: float = 1.0,
 ):
-    # 1. Create dataset
+    # 1. 创建 Dataset：负责把磁盘上的 image/mask 文件读取并预处理成 Tensor。
     try:
+        # Carvana 数据集的 mask 文件名通常带 _mask 后缀。
         dataset = CarvanaDataset(dir_img, dir_mask, img_scale)
     except (AssertionError, RuntimeError, IndexError):
+        # 当前项目的小样本数据中 image 和 mask 文件名一致，因此回退到 BasicDataset。
         dataset = BasicDataset(dir_img, dir_mask, img_scale)
 
-    # 2. Split into train / validation partitions
+    # 2. 将完整 Dataset 划分为训练集和验证集。
     n_val = int(len(dataset) * val_percent)
     n_train = len(dataset) - n_val
     train_set, val_set = random_split(dataset, [n_train, n_val], generator=torch.Generator().manual_seed(0))
 
-    # 3. Create data loaders
+    # 3. 创建 DataLoader：负责反复调用 Dataset.__getitem__，并把多个样本组成 batch。
     # loader_args = dict(batch_size=batch_size, num_workers=os.cpu_count(), pin_memory=True)
     loader_args = dict(batch_size=batch_size, num_workers=0, pin_memory=True)
     train_loader = DataLoader(train_set, shuffle=True, **loader_args)
@@ -88,6 +90,9 @@ def train_model(
         epoch_loss = 0
         with tqdm(total=n_train, desc=f'Epoch {epoch}/{epochs}', unit='img') as pbar:
             for batch in train_loader:
+                # batch 来自 DataLoader，包含两部分：
+                # - image: 模型输入，形状通常是 N x C x H x W；
+                # - mask: 像素级标准答案，形状通常是 N x H x W。
                 images, true_masks = batch['image'], batch['mask']
 
                 assert images.shape[1] == model.n_channels, \
@@ -95,10 +100,12 @@ def train_model(
                     f'but loaded images have {images.shape[1]} channels. Please check that ' \
                     'the images are loaded correctly.'
 
+                # image 是连续输入值，使用 float32；mask 是类别编号，使用 long。
                 images = images.to(device=device, dtype=torch.float32, memory_format=torch.channels_last)
                 true_masks = true_masks.to(device=device, dtype=torch.long)
 
                 with torch.autocast(device.type if device.type != 'mps' else 'cpu', enabled=amp):
+                    # 只把 image 送入模型；true_masks 不进入模型，它用于和预测结果计算监督信号。
                     masks_pred = model(images)
                     if model.n_classes == 1:
                         loss = criterion(masks_pred.squeeze(1), true_masks.float())
@@ -163,6 +170,7 @@ def train_model(
         if save_checkpoint:
             Path(dir_checkpoint).mkdir(parents=True, exist_ok=True)
             state_dict = model.state_dict()
+            # 保存 mask_values，预测阶段需要用它把类别编号还原成原始 mask 像素值。
             state_dict['mask_values'] = dataset.mask_values
             torch.save(state_dict, str(dir_checkpoint / 'checkpoint_epoch{}.pth'.format(epoch)))
             logging.info(f'Checkpoint {epoch} saved!')
