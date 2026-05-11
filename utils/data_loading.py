@@ -26,6 +26,7 @@ def load_image(filename):
         return Image.open(filename)
 
 
+# 这个函数是统计mask中出现的所有像素值
 def unique_mask_values(idx, mask_dir, mask_suffix):
     # 找到当前 image id 对应的 mask 文件，并统计 mask 中出现过的像素值。
     # 语义分割中，mask 的像素值代表类别；例如 0 表示背景，255 可能表示目标。
@@ -47,6 +48,7 @@ def unique_mask_values(idx, mask_dir, mask_suffix):
 
 # 继承了Dataset,负责读取出一对 image与mask
 class BasicDataset(Dataset):
+    # 这里的scale是resize的缩放比例,images_dir 代表的是image的存放路径,mask_dir代表的是mask的存放路径
     def __init__(self, images_dir: str, mask_dir: str, scale: float = 1.0, mask_suffix: str = ''):
         self.images_dir = Path(images_dir)
         self.mask_dir = Path(mask_dir)
@@ -58,6 +60,7 @@ class BasicDataset(Dataset):
         # 例如 data/imgs/sample_0.png 会得到 id: sample_0。
         # 后续 __getitem__ 会用这个 id 去 images_dir 和 mask_dir 中分别找 image 与 mask。
         self.ids = [splitext(file)[0] for file in listdir(images_dir) if isfile(join(images_dir, file)) and not file.startswith('.')]
+        # 如果images目录下读不到文件，则会直接报错。
         if not self.ids:
             raise RuntimeError(f'No input file found in {images_dir}, make sure you put your images there')
 
@@ -66,15 +69,11 @@ class BasicDataset(Dataset):
 
         # 扫描全部 mask，得到数据集中所有可能的 mask 原始像素值。
         # 原版代码使用 multiprocessing.Pool 加速；这里保留串行版本，便于小数据集调试和阅读。
-        # with Pool() as p:
-        #     unique = list(tqdm(
-        #         p.imap(partial(unique_mask_values, mask_dir=self.mask_dir, mask_suffix=self.mask_suffix), self.ids),
-        #         total=len(self.ids)
-        #     ))
-        unique = [
-                unique_mask_values(idx, self.mask_dir, self.mask_suffix)
-                for idx in tqdm(self.ids, total=len(self.ids))
-                ]
+        with Pool() as p:
+            unique = list(tqdm(
+                p.imap(partial(unique_mask_values, mask_dir=self.mask_dir, mask_suffix=self.mask_suffix), self.ids),
+                total=len(self.ids)
+            ))
 
         # mask_values 保存“原始 mask 像素值 -> 类别编号”的映射基础。
         # 例如 mask_values = [0, 255] 时，后续 preprocess 会把 0 映射为类别 0，把 255 映射为类别 1。
@@ -127,6 +126,8 @@ class BasicDataset(Dataset):
 
             return img
 
+
+    
     def __getitem__(self, idx):
         # DataLoader 每次取样本时会调用这里。
         # idx -> id -> 找到 image 文件和 mask 文件 -> 读取 -> 预处理 -> 返回 Tensor。
