@@ -6,6 +6,7 @@ datasets/
 
 # training outputs
 checkpoints/
+checkpoints_archive/
 logs/
 runs/
 wandb/

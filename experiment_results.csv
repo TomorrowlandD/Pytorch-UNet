@@ -1,0 +1,1 @@
+exp_name,model,dataset,epochs,batch_size,lr,scale,amp,final_dice,log_file,remark
