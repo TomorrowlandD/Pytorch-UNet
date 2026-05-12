@@ -1,7 +1,7 @@
 import torch
 import torch.nn.functional as F
 from tqdm import tqdm
-from utils.dice_score import multiclass_dice_coeff, dice_coeff
+from utils.dice_score import multiclass_dice_coeff, dice_coeff, multiclass_iou_score, iou_score
 
 # 验证 / 推理阶段不需要计算梯度(也就是关闭梯度计算),与with no_grad()代码块差不多意思
 @torch.inference_mode()
@@ -12,6 +12,7 @@ def evaluate(net, dataloader, device, amp):
     num_val_batches = len(dataloader)
     # 用于累加每个 batch 的 Dice 分数
     dice_score = 0
+    iou = 0
     # AMP 混合精度环境，属于性能优化,torch.autocast 是 AMP 混合精度相关，不影响验证主线。
     with torch.autocast(device.type if device.type != 'mps' else 'cpu', enabled=amp):
 
@@ -39,11 +40,13 @@ def evaluate(net, dataloader, device, amp):
 
                 # logits → sigmoid 概率 → 阈值化二值 mask
                 # 就是把预测的分数先转化为概率,然后设置一个阈值,高于这个阈值的概率,答案就是1.0,否则就是0.0
-                mask_pred = (F.sigmoid(mask_pred) > 0.5).float()
+                mask_pred = (F.sigmoid(mask_pred) > 0.5).float().squeeze(1)
+                mask_true = mask_true.float()
 
                 # 计算二分类 Dice
                 # 注意：这里要求 mask_pred 和 mask_true 的 shape 一致
                 dice_score += dice_coeff(mask_pred, mask_true, reduce_batch_first=False)
+                iou += iou_score(mask_pred, mask_true, reduce_batch_first=False)
 
             # 多分类分割
             else:
@@ -67,9 +70,17 @@ def evaluate(net, dataloader, device, amp):
                     mask_true[:, 1:],
                     reduce_batch_first=False
                 )
+                iou += multiclass_iou_score(
+                    mask_pred[:, 1:],
+                    mask_true[:, 1:],
+                    reduce_batch_first=False
+                )
 
     # 验证结束后，把模型切回训练模式
     net.train()
 
     # 返回验证集平均 Dice
-    return dice_score / max(num_val_batches, 1)
+    return {
+        'dice': dice_score / max(num_val_batches, 1),
+        'iou': iou / max(num_val_batches, 1),
+    }

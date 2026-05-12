@@ -43,6 +43,22 @@ def multiclass_dice_coeff(input: Tensor, target: Tensor, reduce_batch_first: boo
     return dice_coeff(input.flatten(0, 1), target.flatten(0, 1), reduce_batch_first, epsilon)
 
 
+
+def iou_score(input: Tensor, target: Tensor, reduce_batch_first: bool = False, epsilon: float = 1e-6):
+    assert input.size() == target.size()
+    assert input.dim() == 3 or not reduce_batch_first
+
+    sum_dim = (-1, -2) if input.dim() == 2 or not reduce_batch_first else (-1, -2, -3)
+    intersection = (input * target).sum(dim=sum_dim)
+    union = input.sum(dim=sum_dim) + target.sum(dim=sum_dim) - intersection
+    iou = (intersection + epsilon) / (union + epsilon)
+    return iou.mean()
+
+
+def multiclass_iou_score(input: Tensor, target: Tensor, reduce_batch_first: bool = False, epsilon: float = 1e-6):
+    return iou_score(input.flatten(0, 1), target.flatten(0, 1), reduce_batch_first, epsilon)
+
+
 # 计算 Dice Loss
 def dice_loss(input: Tensor, target: Tensor, multiclass: bool = False):
     # 如果是多分类，使用 multiclass_dice_coeff
