@@ -1,0 +1,30 @@
+# datasets
+data/
+data_full/
+data_small/
+datasets/
+
+# training outputs
+checkpoints/
+logs/
+runs/
+wandb/
+results/
+
+# model weights
+*.pth
+*.pt
+*.ckpt
+
+# compressed files
+*.zip
+*.tar
+*.tar.gz
+
+# python cache
+__pycache__/
+*.pyc
+.ipynb_checkpoints/
+
+# system
+.DS_Store
