@@ -35,7 +35,7 @@ Remove-Item "C:\path\to\file.txt"
         ↓
 服务器 git pull 最新代码
         ↓
-服务器跑训练，用 tee 保存日志
+服务器在 tmux 中跑训练，用 tee 保存日志
         ↓
 服务器提取 Dice / 记录实验结果
         ↓
@@ -44,7 +44,7 @@ Remove-Item "C:\path\to\file.txt"
 本地 git pull，同步实验记录
 ```
 
-GitHub 是代码与实验记录的同步中心；服务器是训练环境；本地 + Codex 是代码修改环境。
+GitHub 是代码与实验记录的同步中心；服务器是训练环境；本地 + Codex 是代码修改环境。服务器上的长期训练必须优先放在 `tmux` 会话中执行，避免 SSH 或网页终端关闭后训练被中断。
 
 ## 推荐项目结构
 
@@ -191,7 +191,22 @@ exp030_bs4_carvana500_e5_lr1e-5_scale0.5_amp
 
 ## 标准训练命令模板
 
-正式训练建议使用下面模板：
+正式训练必须优先使用 `tmux`。不要在普通 SSH 窗口中直接启动长时间训练后关闭窗口，否则训练进程通常会被中断。
+
+启动或进入实验会话：
+
+```bash
+cd /root/autodl-tmp/projects/Pytorch-UNet
+tmux new -s unet_exp
+```
+
+如果会话已存在：
+
+```bash
+tmux attach -t unet_exp
+```
+
+在 `tmux` 会话内使用下面模板：
 
 ```bash
 cd /root/autodl-tmp/projects/Pytorch-UNet
@@ -218,6 +233,15 @@ echo "${EXP_NAME},U-Net,Carvana-small49,1,1,1e-5,0.5,yes,${FINAL_DICE},logs/${EX
 cp checkpoints/*.pth checkpoints_archive/${EXP_NAME}/ 2>/dev/null || true
 ```
 
+训练开始后，如果需要关闭窗口，先从 `tmux` 会话中分离：
+
+```text
+Ctrl+b
+然后按 d
+```
+
+分离后可以关闭 SSH 或网页终端，训练会继续在服务器上运行。
+
 这段命令完成：
 
 | 步骤 | 作用 |
@@ -226,6 +250,109 @@ cp checkpoints/*.pth checkpoints_archive/${EXP_NAME}/ 2>/dev/null || true
 | `grep ... tail -1` | 提取最后一次 Dice |
 | `echo ... >> experiment_results.csv` | 写入实验结果总表 |
 | `cp checkpoints/*.pth` | 备份本次 checkpoint |
+
+## tmux 训练管理
+
+服务器上的训练、长时间评估、批量预测都应放在 `tmux` 中运行。
+
+### 查看 tmux 会话
+
+```bash
+tmux ls
+```
+
+如果能看到类似：
+
+```text
+unet_exp: 1 windows
+```
+
+说明会话还存在，训练可能仍在运行或已经结束但窗口还开着。
+
+### 重新进入会话
+
+```bash
+tmux attach -t unet_exp
+```
+
+进入后查看终端输出：
+
+- 还在刷新 epoch / tqdm：训练仍在运行。
+- 回到 shell 提示符：训练命令已经结束。
+- 出现报错 traceback / CUDA OOM：训练失败，需要根据报错处理。
+
+### 不进入 tmux 时查看日志
+
+```bash
+tail -f logs/实验名.log
+```
+
+例如：
+
+```bash
+tail -f logs/exp010_baseline_carvana5088_original_e5_bs1_lr1e-5_scale0.5_amp.log
+```
+
+如果日志持续增加，说明训练还在进行。停止查看日志用 `Ctrl+c`，这只会退出 `tail`，不会停止训练。
+
+### 判断训练是否完成
+
+优先用下面几种方式交叉确认：
+
+```bash
+tmux ls
+tmux attach -t unet_exp
+```
+
+如果进入后已经回到 shell 提示符，说明训练命令结束。
+
+查看日志最后几行：
+
+```bash
+tail -n 50 logs/实验名.log
+```
+
+如果能看到最后一个 epoch 的 checkpoint，例如：
+
+```text
+INFO: Checkpoint 5 saved!
+```
+
+说明 5 epoch baseline 正常跑完。
+
+查看是否有训练进程：
+
+```bash
+ps -ef | grep "python train.py" | grep -v grep
+```
+
+如果没有输出，通常说明训练进程已经结束；如果有输出，说明训练仍在运行。
+
+查看 GPU 占用：
+
+```bash
+nvidia-smi
+```
+
+如果 `python` 进程仍占用 GPU，训练大概率仍在运行。
+
+### 训练结束后提取结果
+
+只有确认训练结束后，才运行 Dice 提取和实验表写入命令：
+
+```bash
+FINAL_DICE=$(grep "Validation Dice score" logs/${EXP_NAME}.log | tail -1 | awk -F': ' '{print $NF}')
+echo "FINAL_DICE=${FINAL_DICE}"
+```
+
+如果 `FINAL_DICE` 为空，先检查日志：
+
+```bash
+tail -n 100 logs/${EXP_NAME}.log
+grep "Validation Dice score" logs/${EXP_NAME}.log | tail
+```
+
+不要在训练尚未结束时提前把结果写入 `experiment_results.csv`。
 
 ## 快速查看训练结果
 
