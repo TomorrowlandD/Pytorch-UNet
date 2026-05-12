@@ -18,16 +18,22 @@ def predict_img(net,
                 scale_factor=1,
                 out_threshold=0.5):
     net.eval()
+    # 预测阶段没有真实 mask，只需要复用训练时的 image 预处理逻辑。
+    # BasicDataset.preprocess 会把 PIL Image 转成 C x H x W，并把像素值归一化到 0-1。
     img = torch.from_numpy(BasicDataset.preprocess(None, full_img, scale_factor, is_mask=False))
+    # 模型输入需要 batch 维度：C x H x W -> 1 x C x H x W。
     img = img.unsqueeze(0)
     img = img.to(device=device, dtype=torch.float32)
 
     with torch.no_grad():
         output = net(img).cpu()
+        # 网络可能在缩放后的尺寸上预测，这里把输出插值回原图大小。
         output = F.interpolate(output, (full_img.size[1], full_img.size[0]), mode='bilinear')
         if net.n_classes > 1:
+            # 多分类分割：在类别通道上取分数最高的类别编号。
             mask = output.argmax(dim=1)
         else:
+            # 二分类单通道分割：经过 sigmoid 后按阈值转成前景/背景。
             mask = torch.sigmoid(output) > out_threshold
 
     return mask[0].long().squeeze().numpy()
@@ -60,6 +66,8 @@ def get_output_filenames(args):
 
 
 def mask_to_image(mask: np.ndarray, mask_values):
+    # mask 是模型输出的类别编号图，例如 0/1/2。
+    # mask_values 来自训练时保存的 checkpoint，用于把类别编号还原成原始 mask 像素值或颜色。
     if isinstance(mask_values[0], list):
         out = np.zeros((mask.shape[-2], mask.shape[-1], len(mask_values[0])), dtype=np.uint8)
     elif mask_values == [0, 1]:
@@ -71,6 +79,7 @@ def mask_to_image(mask: np.ndarray, mask_values):
         mask = np.argmax(mask, axis=0)
 
     for i, v in enumerate(mask_values):
+        # 训练时是“原始像素值 v -> 类别编号 i”，预测保存时这里反向还原。
         out[mask == i] = v
 
     return Image.fromarray(out)
@@ -91,6 +100,7 @@ if __name__ == '__main__':
 
     net.to(device=device)
     state_dict = torch.load(args.model, map_location=device)
+    # checkpoint 中保存了训练数据的 mask_values，预测输出 mask 时需要按它还原像素值。
     mask_values = state_dict.pop('mask_values', [0, 1])
     net.load_state_dict(state_dict)
 
