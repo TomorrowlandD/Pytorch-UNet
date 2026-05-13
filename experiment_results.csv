@@ -9,3 +9,4 @@ exp023_lr5e-6_full5088_e5_bs1_scale0.5_noamp_workers2,U-Net,Carvana-full5088,5,1
 exp024_bilinear_full5088_e5_bs1_lr1e-5_scale0.5_noamp_workers2,U-Net,Carvana-full5088,5,1,1e-5,0.5,no,cross_entropy+dice,bilinear,0.9899868369102478,0.9806323647499084,upsampling comparison bilinear vs baseline transposed_conv
 exp025_scale1.0_full5088_e5_bs1_lr1e-5_noamp_workers2,U-Net,Carvana-full5088,5,1,1e-5,1.0,no,cross_entropy+dice,transposed_conv,0.8895812630653381,0.8327784538269043,scale comparison scale=1.0
 exp026_ce_full5088_e5_bs1_lr1e-5_scale0.5_noamp_workers2,U-Net,Carvana-full5088,5,1,1e-5,0.5,no,cross_entropy,transposed_conv,0.9810195565223694,0.9644685983657837,loss comparison cross_entropy only
+exp027_dice_full5088_e5_bs1_lr1e-5_scale0.5_noamp_workers2,U-Net,Carvana-full5088,5,1,1e-5,0.5,no,dice,transposed_conv,0.9776511192321777,0.9591005444526672,loss comparison dice only
