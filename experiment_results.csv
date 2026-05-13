@@ -1,5 +1,5 @@
-exp_name,model,dataset,epochs,batch_size,lr,scale,amp,final_dice,final_iou,remark
-exp010_baseline_small49_e1_bs1_lr1e-5_scale0.5_amp,U-Net,Carvana-small49,1,1,1e-5,0.5,yes,0.7936679124832153,,baseline small test
-exp012_baseline_carvana5088_original_e5_bs1_lr1e-5_scale0.5_noamp_workers2,U-Net,Carvana-full5088,5,1,1e-5,0.5,no,0.9883347749710083,,original baseline full Carvana dataset noamp workers2
-exp013_speedtest_carvana5088_e1_bs1_lr1e-5_scale0.5_noamp_workers4,U-Net,Carvana-full5088,1,1,1e-5,0.5,no,0.965044379234314,,speed test noamp workers4 epoch time about 7m53s
-exp022_lr1e-5_full5088_e5_bs1_scale0.5_noamp_workers2,U-Net,Carvana-full5088,5,1,1e-5,0.5,no,0.9856265783309937,0.9724651575088501,baseline rerun with IoU
+exp_name,model,dataset,epochs,batch_size,lr,scale,amp,loss,upsampling,final_dice,final_iou,remark
+exp010_baseline_small49_e1_bs1_lr1e-5_scale0.5_amp,U-Net,Carvana-small49,1,1,1e-5,0.5,yes,cross_entropy+dice,transposed_conv,0.7936679124832153,,baseline small test
+exp012_baseline_carvana5088_original_e5_bs1_lr1e-5_scale0.5_noamp_workers2,U-Net,Carvana-full5088,5,1,1e-5,0.5,no,cross_entropy+dice,transposed_conv,0.9883347749710083,,original baseline full Carvana dataset noamp workers2
+exp013_speedtest_carvana5088_e1_bs1_lr1e-5_scale0.5_noamp_workers4,U-Net,Carvana-full5088,1,1,1e-5,0.5,no,cross_entropy+dice,transposed_conv,0.965044379234314,,speed test noamp workers4 epoch time about 7m53s
+exp022_lr1e-5_full5088_e5_bs1_scale0.5_noamp_workers2,U-Net,Carvana-full5088,5,1,1e-5,0.5,no,cross_entropy+dice,transposed_conv,0.9856265783309937,0.9724651575088501,baseline rerun with IoU
