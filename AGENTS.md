@@ -122,6 +122,27 @@ echo "exp_name,model,dataset,epochs,batch_size,lr,scale,amp,loss,upsampling,fina
 echo "${EXP_NAME},${MODEL},${DATASET},${EPOCHS},${BATCH_SIZE},${LR},${SCALE},${AMP},${LOSS},${UPSAMPLING},${FINAL_DICE},${FINAL_IOU},${REMARK}" >> experiment_results.csv
 ```
 
+## 当前训练脚本支持的关键参数
+
+`train.py` 当前支持：
+
+```text
+--epochs
+--batch-size
+--learning-rate
+--scale
+--validation
+--amp
+--num-workers
+--classes
+--bilinear
+--exp-name
+--results-dir
+--loss              auto / cross_entropy / dice / cross_entropy+dice / bce / bce+dice
+```
+
+当前 baseline 是 `cross_entropy+dice`，对应 CE + Dice Loss。`--classes 2` 时，loss 对比优先使用 `cross_entropy+dice`、`cross_entropy`、`dice`。`bce` 和 `bce+dice` 只用于 `--classes 1` 的二分类写法。
+
 ## 对比实验总原则
 
 一次只改一个变量。
@@ -171,6 +192,12 @@ LOSS=cross_entropy+dice
 
 ```text
 LOSS=cross_entropy
+```
+
+如果只测试 Dice Loss，则记录：
+
+```text
+LOSS=dice
 ```
 
 Loss 对比只允许改变 `LOSS`，其他参数保持一致。
@@ -238,6 +265,7 @@ python train.py \
   --validation 10 \
   --num-workers 2 \
   --classes 2 \
+  --loss ${LOSS} \
   --exp-name ${EXP_NAME} \
   2>&1 | tee logs/${EXP_NAME}.log
 ```
@@ -257,6 +285,7 @@ python train.py \
   --validation 10 \
   --num-workers 2 \
   --classes 2 \
+  --loss ${LOSS} \
   --bilinear \
   --exp-name ${EXP_NAME} \
   2>&1 | tee logs/${EXP_NAME}.log
