@@ -1,12 +1,12 @@
 exp_name,model,dataset,epochs,batch_size,lr,scale,amp,loss,upsampling,final_dice,final_iou,remark
-exp010_baseline_small49_e1_bs1_lr1e-5_scale0.5_amp,U-Net,Carvana-small49,1,1,1e-5,0.5,yes,cross_entropy+dice,transposed_conv,0.7936679124832153,,baseline small test
-exp012_baseline_carvana5088_original_e5_bs1_lr1e-5_scale0.5_noamp_workers2,U-Net,Carvana-full5088,5,1,1e-5,0.5,no,cross_entropy+dice,transposed_conv,0.9883347749710083,,original baseline full Carvana dataset noamp workers2
-exp013_speedtest_carvana5088_e1_bs1_lr1e-5_scale0.5_noamp_workers4,U-Net,Carvana-full5088,1,1,1e-5,0.5,no,cross_entropy+dice,transposed_conv,0.965044379234314,,speed test noamp workers4 epoch time about 7m53s
-exp022_lr1e-5_full5088_e5_bs1_scale0.5_noamp_workers2,U-Net,Carvana-full5088,5,1,1e-5,0.5,no,cross_entropy+dice,transposed_conv,0.9856265783309937,0.9724651575088501,baseline rerun with IoU
-exp020_lr1e-4_full5088_e5_bs1_scale0.5_noamp_workers2,U-Net,Carvana-full5088,5,1,1e-4,0.5,no,cross_entropy+dice,transposed_conv,0.9778566360473633,0.9590164422988892,learning rate comparison lr=1e-4
-exp021_lr5e-5_full5088_e5_bs1_scale0.5_noamp_workers2,U-Net,Carvana-full5088,5,1,5e-5,0.5,no,cross_entropy+dice,transposed_conv,0.9686471223831177,0.9447517991065979,learning rate comparison lr=5e-5
-exp023_lr5e-6_full5088_e5_bs1_scale0.5_noamp_workers2,U-Net,Carvana-full5088,5,1,5e-6,0.5,no,cross_entropy+dice,transposed_conv,0.9814117550849915,0.9652178883552551,learning rate comparison lr=5e-6
-exp024_bilinear_full5088_e5_bs1_lr1e-5_scale0.5_noamp_workers2,U-Net,Carvana-full5088,5,1,1e-5,0.5,no,cross_entropy+dice,bilinear,0.9899868369102478,0.9806323647499084,upsampling comparison bilinear vs baseline transposed_conv
-exp025_scale1.0_full5088_e5_bs1_lr1e-5_noamp_workers2,U-Net,Carvana-full5088,5,1,1e-5,1.0,no,cross_entropy+dice,transposed_conv,0.8895812630653381,0.8327784538269043,scale comparison scale=1.0
-exp026_ce_full5088_e5_bs1_lr1e-5_scale0.5_noamp_workers2,U-Net,Carvana-full5088,5,1,1e-5,0.5,no,cross_entropy,transposed_conv,0.9810195565223694,0.9644685983657837,loss comparison cross_entropy only
-exp027_dice_full5088_e5_bs1_lr1e-5_scale0.5_noamp_workers2,U-Net,Carvana-full5088,5,1,1e-5,0.5,no,dice,transposed_conv,0.9776511192321777,0.9591005444526672,loss comparison dice only
+exp010_baseline_small49_e1_bs1_lr1e-5_scale0.5_amp,U-Net,Carvana-small49,1,1,1.00E-05,0.5,yes,cross_entropy+dice,transposed_conv,0.793667912,,baseline small test
+exp012_baseline_carvana5088_original_e5_bs1_lr1e-5_scale0.5_noamp_workers2,U-Net,Carvana-full5088,5,1,1.00E-05,0.5,no,cross_entropy+dice,transposed_conv,0.988334775,,original baseline full Carvana dataset noamp workers2
+exp013_speedtest_carvana5088_e1_bs1_lr1e-5_scale0.5_noamp_workers4,U-Net,Carvana-full5088,1,1,1.00E-05,0.5,no,cross_entropy+dice,transposed_conv,0.965044379,,speed test noamp workers4 epoch time about 7m53s
+exp022_lr1e-5_full5088_e5_bs1_scale0.5_noamp_workers2,U-Net,Carvana-full5088,5,1,1.00E-05,0.5,no,cross_entropy+dice,transposed_conv,0.985626578,0.972465158,baseline rerun with IoU
+exp020_lr1e-4_full5088_e5_bs1_scale0.5_noamp_workers2,U-Net,Carvana-full5088,5,1,1.00E-04,0.5,no,cross_entropy+dice,transposed_conv,0.977856636,0.959016442,learning rate comparison lr=1e-4
+exp021_lr5e-5_full5088_e5_bs1_scale0.5_noamp_workers2,U-Net,Carvana-full5088,5,1,5.00E-05,0.5,no,cross_entropy+dice,transposed_conv,0.968647122,0.944751799,learning rate comparison lr=5e-5
+exp023_lr5e-6_full5088_e5_bs1_scale0.5_noamp_workers2,U-Net,Carvana-full5088,5,1,5.00E-06,0.5,no,cross_entropy+dice,transposed_conv,0.981411755,0.965217888,learning rate comparison lr=5e-6
+exp024_bilinear_full5088_e5_bs1_lr1e-5_scale0.5_noamp_workers2,U-Net,Carvana-full5088,5,1,1.00E-05,0.5,no,cross_entropy+dice,bilinear,0.989986837,0.980632365,upsampling comparison bilinear vs baseline transposed_conv
+exp025_scale1.0_full5088_e5_bs1_lr1e-5_noamp_workers2,U-Net,Carvana-full5088,5,1,1.00E-05,1,no,cross_entropy+dice,transposed_conv,0.889581263,0.832778454,scale comparison scale=1.0
+exp026_ce_full5088_e5_bs1_lr1e-5_scale0.5_noamp_workers2,U-Net,Carvana-full5088,5,1,1.00E-05,0.5,no,cross_entropy,transposed_conv,0.981019557,0.964468598,loss comparison cross_entropy only
+exp027_dice_full5088_e5_bs1_lr1e-5_scale0.5_noamp_workers2,U-Net,Carvana-full5088,5,1,1.00E-05,0.5,no,dice,transposed_conv,0.977651119,0.959100544,loss comparison dice only

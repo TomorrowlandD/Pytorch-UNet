@@ -11,6 +11,7 @@ logs/
 runs/
 wandb/
 results/
+docs/
 
 # model weights
 *.pth
@@ -33,3 +34,6 @@ __pycache__/
 # local dataset aliases
 /data
 /data_small49_backup/
+
+.codex/
+.agents/
