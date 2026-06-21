@@ -1,6 +1,7 @@
 import argparse
 import csv
 import logging
+import numpy as np
 import os
 import random
 import sys
@@ -17,7 +18,7 @@ from tqdm import tqdm
 import wandb
 from evaluate import evaluate
 from unet import AttentionUNet, UNet
-from utils.data_loading import BasicDataset, CarvanaDataset
+from utils.data_loading import BasicDataset, CarvanaDataset, load_image
 from utils.dice_score import dice_loss
 
 dir_img = Path('./data/imgs/')      # 原始输入图片目录，Dataset 会从这里读取 image。
@@ -80,6 +81,60 @@ def prediction_mask_for_logging(masks_pred, n_classes: int):
     return masks_pred.argmax(dim=1).float()
 
 
+def estimate_binary_pos_weight(dataset):
+    positive = 0
+    total = 0
+    for sample_id in dataset.ids:
+        mask_file = list(dataset.mask_dir.glob(sample_id + dataset.mask_suffix + '.*'))[0]
+        mask = np.asarray(load_image(mask_file))
+        if mask.ndim == 3:
+            foreground = np.any(mask > 0, axis=-1)
+        else:
+            foreground = mask > 0
+        positive += int(foreground.sum())
+        total += int(foreground.size)
+
+    if positive == 0:
+        raise RuntimeError('Cannot compute pos_weight: no foreground pixels found in masks')
+    negative = total - positive
+    return negative / positive
+
+
+def resolve_pos_weight(pos_weight_arg: str, dataset, device, n_classes: int):
+    if n_classes != 1:
+        if pos_weight_arg != 'none':
+            logging.warning('--pos-weight is ignored when --classes > 1')
+        return None
+
+    if pos_weight_arg == 'none':
+        return None
+    if pos_weight_arg == 'auto':
+        value = estimate_binary_pos_weight(dataset)
+    else:
+        value = float(pos_weight_arg)
+        if value <= 0:
+            raise ValueError('--pos-weight must be positive, auto, or none')
+
+    logging.info(f'Using BCE pos_weight={value:.4f}')
+    return torch.tensor([value], device=device, dtype=torch.float32)
+
+
+def build_optimizer(optimizer_name: str, model, learning_rate: float, weight_decay: float, momentum: float):
+    if optimizer_name == 'rmsprop':
+        return optim.RMSprop(
+            model.parameters(),
+            lr=learning_rate,
+            weight_decay=weight_decay,
+            momentum=momentum,
+            foreach=True,
+        )
+    if optimizer_name == 'adam':
+        return optim.Adam(model.parameters(), lr=learning_rate, weight_decay=weight_decay)
+    if optimizer_name == 'adamw':
+        return optim.AdamW(model.parameters(), lr=learning_rate, weight_decay=weight_decay)
+    raise ValueError(f'Unsupported optimizer: {optimizer_name}')
+
+
 def resolve_loss_name(loss_name: str, n_classes: int) -> str:
     loss_name = LOSS_ALIASES.get(loss_name, loss_name)
     if loss_name == 'auto':
@@ -135,6 +190,8 @@ def train_model(
         masks_dir: Path = dir_mask,
         dataset_name: str = 'auto',
         architecture: str = 'unet',
+        optimizer_name: str = 'rmsprop',
+        pos_weight_arg: str = 'none',
 ):
     loss_name = resolve_loss_name(loss_name, model.n_classes)
 
@@ -164,7 +221,8 @@ def train_model(
              gradient_clipping=gradient_clipping, loss=loss_name,
              exp_name=exp_name, results_dir=str(results_dir),
              images_dir=str(images_dir), masks_dir=str(masks_dir),
-             dataset=dataset_name, architecture=architecture)
+             dataset=dataset_name, architecture=architecture,
+             optimizer=optimizer_name, pos_weight=pos_weight_arg)
     )
 
     logging.info(f'''Starting training:
@@ -183,6 +241,8 @@ def train_model(
         Masks dir:       {masks_dir}
         Dataset:         {dataset_name}
         Architecture:    {architecture}
+        Optimizer:       {optimizer_name}
+        Pos weight:      {pos_weight_arg}
     ''')
 
 
@@ -190,14 +250,14 @@ def train_model(
     # 4. Set up the optimizer, the loss, the learning rate scheduler and the loss scaling for AMP
 
     # 优化器=>根据梯度更新模型参数
-    optimizer = optim.RMSprop(model.parameters(),
-                              lr=learning_rate, weight_decay=weight_decay, momentum=momentum, foreach=True)
+    optimizer = build_optimizer(optimizer_name, model, learning_rate, weight_decay, momentum)
     # 学习率调度器=>根据验证 Dice 调整学习率
     scheduler = optim.lr_scheduler.ReduceLROnPlateau(optimizer, 'max', patience=5)  # goal: maximize Dice score
     # 自动混合精度缩放器 (GradScaler)=>AMP 混合精度训练时使用
     grad_scaler = torch.cuda.amp.GradScaler(enabled=amp)
     # 如果多分类，使用 CrossEntropyLoss；如果是 classes=1 的二分类，使用 BCEWithLogitsLoss。
-    criterion = nn.CrossEntropyLoss() if model.n_classes > 1 else nn.BCEWithLogitsLoss()
+    pos_weight = resolve_pos_weight(pos_weight_arg, dataset, device, model.n_classes)
+    criterion = nn.CrossEntropyLoss() if model.n_classes > 1 else nn.BCEWithLogitsLoss(pos_weight=pos_weight)
     # 记录训练了多少个 batch
     global_step = 0
 
@@ -326,11 +386,12 @@ def train_model(
         logging.info(f'Metrics saved to {metrics_file}')
 
         if save_checkpoint:
-            Path(dir_checkpoint).mkdir(parents=True, exist_ok=True) #创建 checkpoint 文件夹
+            checkpoint_dir = dir_checkpoint / exp_name
+            checkpoint_dir.mkdir(parents=True, exist_ok=True) #创建 checkpoint 文件夹
             state_dict = model.state_dict()         # 取出模型参数
             # 保存 mask_values，预测阶段需要用它把类别编号还原成原始 mask 像素值。
             state_dict['mask_values'] = dataset.mask_values     # 保存 mask 类别值信息
-            torch.save(state_dict, str(dir_checkpoint / 'checkpoint_epoch{}.pth'.format(epoch)))
+            torch.save(state_dict, str(checkpoint_dir / 'checkpoint_epoch{}.pth'.format(epoch)))
             logging.info(f'Checkpoint {epoch} saved!')
 
 
@@ -355,6 +416,10 @@ def get_args():
                         help='Dataset loader: auto tries Carvana masks first, then BasicDataset')
     parser.add_argument('--architecture', type=str, default='unet', choices=sorted(ARCHITECTURES.keys()),
                         help='Model architecture to train')
+    parser.add_argument('--optimizer', type=str, default='rmsprop', choices=['rmsprop', 'adam', 'adamw'],
+                        help='Optimizer for training')
+    parser.add_argument('--pos-weight', type=str, default='none',
+                        help='BCE positive class weight for --classes 1: none, auto, or a positive number')
     parser.add_argument('--bilinear', action='store_true', default=False, help='Use bilinear upsampling')
     parser.add_argument('--classes', '-c', type=int, default=2, help='Number of classes')
     parser.add_argument('--loss', type=str, default='auto',
@@ -412,6 +477,8 @@ if __name__ == '__main__':
             masks_dir=Path(args.masks_dir),
             dataset_name=args.dataset,
             architecture=args.architecture,
+            optimizer_name=args.optimizer,
+            pos_weight_arg=args.pos_weight,
         )
     except torch.cuda.OutOfMemoryError:
         logging.error('Detected OutOfMemoryError! '
@@ -436,4 +503,6 @@ if __name__ == '__main__':
             masks_dir=Path(args.masks_dir),
             dataset_name=args.dataset,
             architecture=args.architecture,
+            optimizer_name=args.optimizer,
+            pos_weight_arg=args.pos_weight,
         )
