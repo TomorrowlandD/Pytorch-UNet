@@ -16,7 +16,7 @@ from tqdm import tqdm
 
 import wandb
 from evaluate import evaluate
-from unet import AttentionUNet, UNet
+from unet import UNet
 from utils.data_loading import BasicDataset, CarvanaDataset
 from utils.dice_score import dice_loss
 
@@ -28,11 +28,6 @@ LOSS_ALIASES = {
     'cross_entropy': 'ce',
     'cross_entropy+dice': 'ce-dice',
     'bce+dice': 'bce-dice',
-}
-
-ARCHITECTURES = {
-    'unet': UNet,
-    'attention_unet': AttentionUNet,
 }
 
 
@@ -55,29 +50,6 @@ def append_metrics_row(metrics_file: Path, epoch: int, train_loss: float, val_di
     with metrics_file.open('a', newline='') as f:
         writer = csv.writer(f)
         writer.writerow([epoch, train_loss, tensor_to_float(val_dice), tensor_to_float(val_iou)])
-
-
-def build_dataset(images_dir: Path, masks_dir: Path, img_scale: float, dataset_name: str):
-    if dataset_name == 'carvana':
-        return CarvanaDataset(images_dir, masks_dir, img_scale)
-    if dataset_name == 'basic':
-        return BasicDataset(images_dir, masks_dir, img_scale)
-
-    try:
-        return CarvanaDataset(images_dir, masks_dir, img_scale)
-    except (AssertionError, RuntimeError, IndexError):
-        return BasicDataset(images_dir, masks_dir, img_scale)
-
-
-def build_model(architecture: str, n_channels: int, n_classes: int, bilinear: bool):
-    model_cls = ARCHITECTURES[architecture]
-    return model_cls(n_channels=n_channels, n_classes=n_classes, bilinear=bilinear)
-
-
-def prediction_mask_for_logging(masks_pred, n_classes: int):
-    if n_classes == 1:
-        return (torch.sigmoid(masks_pred.squeeze(1)) > 0.5).float()
-    return masks_pred.argmax(dim=1).float()
 
 
 def resolve_loss_name(loss_name: str, n_classes: int) -> str:
@@ -131,15 +103,16 @@ def train_model(
         loss_name: str = 'auto',
         exp_name: str = 'default',
         results_dir: Path = Path('./results'),
-        images_dir: Path = dir_img,
-        masks_dir: Path = dir_mask,
-        dataset_name: str = 'auto',
-        architecture: str = 'unet',
 ):
     loss_name = resolve_loss_name(loss_name, model.n_classes)
 
     # 1. 创建 Dataset：负责把磁盘上的 image/mask 文件读取并预处理成 Tensor。
-    dataset = build_dataset(images_dir, masks_dir, img_scale, dataset_name)
+    try:
+        # Carvana 数据集的 mask 文件名通常带 _mask 后缀。
+        dataset = CarvanaDataset(dir_img, dir_mask, img_scale)
+    except (AssertionError, RuntimeError, IndexError):
+        # 当前项目的小样本数据中 image 和 mask 文件名一致，因此回退到 BasicDataset。
+        dataset = BasicDataset(dir_img, dir_mask, img_scale)
 
     # 2. 将完整 Dataset 划分为训练集和验证集。
     # val_set是验证集,train_set是训练集
@@ -162,9 +135,7 @@ def train_model(
              val_percent=val_percent, save_checkpoint=save_checkpoint, img_scale=img_scale, amp=amp,
              num_workers=num_workers, weight_decay=weight_decay, momentum=momentum,
              gradient_clipping=gradient_clipping, loss=loss_name,
-             exp_name=exp_name, results_dir=str(results_dir),
-             images_dir=str(images_dir), masks_dir=str(masks_dir),
-             dataset=dataset_name, architecture=architecture)
+             exp_name=exp_name, results_dir=str(results_dir))
     )
 
     logging.info(f'''Starting training:
@@ -179,10 +150,6 @@ def train_model(
         Mixed Precision: {amp}
         Data workers:    {num_workers}
         Loss:            {loss_name}
-        Images dir:      {images_dir}
-        Masks dir:       {masks_dir}
-        Dataset:         {dataset_name}
-        Architecture:    {architecture}
     ''')
 
 
@@ -298,9 +265,7 @@ def train_model(
                                 'images': wandb.Image(images[0].cpu()),
                                 'masks': {
                                     'true': wandb.Image(true_masks[0].float().cpu()),
-                                    'pred': wandb.Image(
-                                        prediction_mask_for_logging(masks_pred, model.n_classes)[0].cpu()
-                                    ),
+                                    'pred': wandb.Image(masks_pred.argmax(dim=1)[0].float().cpu()),
                                 },
                                 'step': global_step,
                                 'epoch': epoch,
@@ -349,12 +314,6 @@ def get_args():
     parser.add_argument('--num-workers', type=int, default=4, help='Number of DataLoader worker processes')
     parser.add_argument('--exp-name', type=str, default='default', help='Experiment name for results/<exp-name>/metrics.csv')
     parser.add_argument('--results-dir', type=str, default='results', help='Directory for per-experiment result files')
-    parser.add_argument('--images-dir', type=str, default=str(dir_img), help='Directory containing input images')
-    parser.add_argument('--masks-dir', type=str, default=str(dir_mask), help='Directory containing target masks')
-    parser.add_argument('--dataset', type=str, default='auto', choices=['auto', 'carvana', 'basic'],
-                        help='Dataset loader: auto tries Carvana masks first, then BasicDataset')
-    parser.add_argument('--architecture', type=str, default='unet', choices=sorted(ARCHITECTURES.keys()),
-                        help='Model architecture to train')
     parser.add_argument('--bilinear', action='store_true', default=False, help='Use bilinear upsampling')
     parser.add_argument('--classes', '-c', type=int, default=2, help='Number of classes')
     parser.add_argument('--loss', type=str, default='auto',
@@ -375,19 +334,17 @@ if __name__ == '__main__':
     # Change here to adapt to your data
     # n_channels=3 for RGB images
     # n_classes is the number of probabilities you want to get per pixel
-    model = build_model(args.architecture, n_channels=3, n_classes=args.classes, bilinear=args.bilinear)
+    model = UNet(n_channels=3, n_classes=args.classes, bilinear=args.bilinear)
     model = model.to(memory_format=torch.channels_last)
 
     logging.info(f'Network:\n'
-                 f'\t{args.architecture} architecture\n'
                  f'\t{model.n_channels} input channels\n'
                  f'\t{model.n_classes} output channels (classes)\n'
                  f'\t{"Bilinear" if model.bilinear else "Transposed conv"} upscaling')
 
     if args.load:
         state_dict = torch.load(args.load, map_location=device)
-        if 'mask_values' in state_dict:
-            del state_dict['mask_values']
+        del state_dict['mask_values']
         model.load_state_dict(state_dict)
         logging.info(f'Model loaded from {args.load}')
 
@@ -407,11 +364,7 @@ if __name__ == '__main__':
             num_workers=args.num_workers,
             loss_name=args.loss,
             exp_name=args.exp_name,
-            results_dir=Path(args.results_dir),
-            images_dir=Path(args.images_dir),
-            masks_dir=Path(args.masks_dir),
-            dataset_name=args.dataset,
-            architecture=args.architecture,
+            results_dir=Path(args.results_dir)
         )
     except torch.cuda.OutOfMemoryError:
         logging.error('Detected OutOfMemoryError! '
@@ -431,9 +384,5 @@ if __name__ == '__main__':
             num_workers=args.num_workers,
             loss_name=args.loss,
             exp_name=args.exp_name,
-            results_dir=Path(args.results_dir),
-            images_dir=Path(args.images_dir),
-            masks_dir=Path(args.masks_dir),
-            dataset_name=args.dataset,
-            architecture=args.architecture,
+            results_dir=Path(args.results_dir)
         )
