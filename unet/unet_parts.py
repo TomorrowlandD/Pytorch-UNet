@@ -155,6 +155,66 @@ class Up(nn.Module):
         return self.conv(x)
 
 
+class AttentionGate(nn.Module):
+    """Gate skip-connection features with decoder context."""
+
+    def __init__(self, gate_channels, skip_channels, inter_channels=None):
+        super().__init__()
+        if inter_channels is None:
+            inter_channels = max(skip_channels // 2, 1)
+
+        self.gate_proj = nn.Sequential(
+            nn.Conv2d(gate_channels, inter_channels, kernel_size=1, bias=False),
+            nn.BatchNorm2d(inter_channels),
+        )
+        self.skip_proj = nn.Sequential(
+            nn.Conv2d(skip_channels, inter_channels, kernel_size=1, bias=False),
+            nn.BatchNorm2d(inter_channels),
+        )
+        self.psi = nn.Sequential(
+            nn.Conv2d(inter_channels, 1, kernel_size=1, bias=True),
+            nn.Sigmoid(),
+        )
+        self.relu = nn.ReLU(inplace=True)
+
+    def forward(self, gate, skip):
+        attention = self.psi(self.relu(self.gate_proj(gate) + self.skip_proj(skip)))
+        return skip * attention
+
+
+class AttentionUp(nn.Module):
+    """Upscaling with an attention gate on the skip connection."""
+
+    def __init__(self, in_channels, out_channels, bilinear=True):
+        super().__init__()
+
+        if bilinear:
+            self.up = nn.Upsample(scale_factor=2, mode='bilinear', align_corners=True)
+            self.conv = DoubleConv(in_channels, out_channels, in_channels // 2)
+        else:
+            self.up = nn.ConvTranspose2d(in_channels, in_channels // 2, kernel_size=2, stride=2)
+            self.conv = DoubleConv(in_channels, out_channels)
+
+        skip_channels = in_channels // 2
+        self.attention = AttentionGate(
+            gate_channels=skip_channels,
+            skip_channels=skip_channels,
+            inter_channels=max(skip_channels // 2, 1),
+        )
+
+    def forward(self, x1, x2):
+        x1 = self.up(x1)
+
+        diffY = x2.size()[2] - x1.size()[2]
+        diffX = x2.size()[3] - x1.size()[3]
+        x1 = F.pad(x1, [diffX // 2, diffX - diffX // 2,
+                        diffY // 2, diffY - diffY // 2])
+
+        x2 = self.attention(gate=x1, skip=x2)
+        x = torch.cat([x2, x1], dim=1)
+        return self.conv(x)
+
+
 class OutConv(nn.Module):
     """Final 1x1 convolution.
 

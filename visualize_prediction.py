@@ -7,10 +7,14 @@ import torch
 from PIL import Image
 
 from predict import predict_img
-from unet import UNet
+from unet import AttentionUNet, UNet
 
 
 IMAGE_EXTENSIONS = {'.jpg', '.jpeg', '.png', '.bmp', '.gif', '.tif', '.tiff'}
+ARCHITECTURES = {
+    'unet': UNet,
+    'attention_unet': AttentionUNet,
+}
 
 
 def get_args():
@@ -25,6 +29,8 @@ def get_args():
                         help='Experiment name used when --output-dir is not set')
     parser.add_argument('--scale', '-s', type=float, default=0.5, help='Scale factor for model input')
     parser.add_argument('--classes', '-c', type=int, default=2, help='Number of output classes')
+    parser.add_argument('--architecture', type=str, default='unet', choices=sorted(ARCHITECTURES.keys()),
+                        help='Model architecture')
     parser.add_argument('--bilinear', action='store_true', default=False, help='Use bilinear upsampling')
     parser.add_argument('--mask-threshold', '-t', type=float, default=0.5,
                         help='Minimum probability value for foreground in single-class models')
@@ -80,7 +86,7 @@ def save_overlay(image: Image.Image, pred_mask: np.ndarray, output_file: Path):
 
 
 def load_model(args, device):
-    net = UNet(n_channels=3, n_classes=args.classes, bilinear=args.bilinear)
+    net = ARCHITECTURES[args.architecture](n_channels=3, n_classes=args.classes, bilinear=args.bilinear)
     net.to(device=device)
     state_dict = torch.load(args.model, map_location=device)
     state_dict.pop('mask_values', None)
