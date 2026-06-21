@@ -24,7 +24,25 @@ def binarize_mask(mask_path: Path, threshold: int):
     return Image.fromarray(binary, mode='L')
 
 
-def prepare_kvasir(src_images: Path, src_masks: Path, out_images: Path, out_masks: Path, threshold: int, limit: int):
+def resize_pair(image: Image.Image, mask: Image.Image, size: int | None):
+    if size is None:
+        return image, mask
+
+    target_size = (size, size)
+    image = image.resize(target_size, resample=Image.BICUBIC)
+    mask = mask.resize(target_size, resample=Image.NEAREST)
+    return image, mask
+
+
+def prepare_kvasir(
+        src_images: Path,
+        src_masks: Path,
+        out_images: Path,
+        out_masks: Path,
+        threshold: int,
+        limit: int,
+        size: int | None,
+):
     image_files = collect_files(src_images)
     mask_files = collect_files(src_masks)
     shared_ids = sorted(set(image_files) & set(mask_files))
@@ -54,6 +72,8 @@ def prepare_kvasir(src_images: Path, src_masks: Path, out_images: Path, out_mask
                 f'Image and mask size mismatch for {sample_id}: image={image.size}, mask={mask.size}'
             )
 
+        image, mask = resize_pair(image, mask, size)
+
         image.save(out_images / f'{sample_id}.png')
         mask.save(out_masks / f'{sample_id}.png')
 
@@ -72,6 +92,8 @@ def get_args():
                         help='Output directory for prepared binary masks')
     parser.add_argument('--threshold', type=int, default=127,
                         help='Mask binarization threshold: pixels above it become foreground')
+    parser.add_argument('--size', type=int, default=None,
+                        help='Optional fixed square output size, e.g. 384 writes 384x384 images and masks')
     parser.add_argument('--limit', type=int, default=None,
                         help='Optional maximum number of matched pairs to prepare for smoke tests')
     return parser.parse_args()
@@ -86,4 +108,5 @@ if __name__ == '__main__':
         out_masks=args.out_masks,
         threshold=args.threshold,
         limit=args.limit,
+        size=args.size,
     )
