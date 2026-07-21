@@ -11,6 +11,7 @@ from PIL import Image
 from predict import mask_to_image
 from unet import UNet
 from utils.data_loading import BasicDataset
+from utils.model_loading import load_checkpoint
 
 
 IMAGE_EXTENSIONS = {'.jpg', '.jpeg', '.png', '.bmp', '.gif', '.tif', '.tiff'}
@@ -31,6 +32,12 @@ def get_args():
     parser.add_argument('--scale', '-s', type=float, default=0.5, help='Input image scale factor')
     parser.add_argument('--classes', '-c', type=int, default=2, help='Number of output classes')
     parser.add_argument('--bilinear', action='store_true', default=False, help='Use bilinear upsampling')
+    parser.add_argument('--attention', choices=['none', 'lite_sr_mhsa'], default='none',
+                        help='Bottleneck attention used by the checkpoint')
+    parser.add_argument('--attention-dim', type=int, default=128)
+    parser.add_argument('--attention-heads', type=int, default=4)
+    parser.add_argument('--attention-sr-ratio', type=int, default=2)
+    parser.add_argument('--load-mode', choices=['strict', 'backbone'], default='strict')
     parser.add_argument('--mask-threshold', '-t', type=float, default=0.5,
                         help='Foreground threshold for a single-class model')
     parser.add_argument('--warmup', type=int, default=25, help='Warmup images before each timed run (20-30)')
@@ -105,12 +112,23 @@ def load_rgb_image(path: Path):
 
 
 def load_model(args, device):
-    model = UNet(n_channels=3, n_classes=args.classes, bilinear=args.bilinear)
+    model = UNet(
+        n_channels=3,
+        n_classes=args.classes,
+        bilinear=args.bilinear,
+        attention=args.attention,
+        attention_dim=args.attention_dim,
+        attention_heads=args.attention_heads,
+        attention_sr_ratio=args.attention_sr_ratio,
+    )
     model.to(device=device)
 
-    state_dict = torch.load(args.model, map_location=device)
-    mask_values = state_dict.pop('mask_values', [0, 1])
-    model.load_state_dict(state_dict)
+    mask_values = load_checkpoint(
+        model,
+        args.model,
+        map_location=device,
+        load_mode=args.load_mode,
+    )
     model.eval()
     return model, mask_values
 
@@ -200,6 +218,12 @@ def main():
     print('Batch size: 1')
     print(f'Scale: {args.scale}')
     print(f'Upsampling: {"bilinear" if args.bilinear else "transposed_conv"}')
+    print(f'Attention: {args.attention}')
+    if args.attention != 'none':
+        print(
+            f'Attention config: dim={args.attention_dim}, '
+            f'heads={args.attention_heads}, sr_ratio={args.attention_sr_ratio}'
+        )
     print(f'Warmup: {args.warmup} images before each run')
     print(f'Runs: {args.runs}')
 

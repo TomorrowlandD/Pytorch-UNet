@@ -10,6 +10,7 @@ from torchvision import transforms
 
 from utils.data_loading import BasicDataset
 from unet import UNet
+from utils.model_loading import load_checkpoint
 from utils.utils import plot_img_and_mask
 
 def predict_img(net,
@@ -54,6 +55,12 @@ def get_args():
                         help='Scale factor for the input images')
     parser.add_argument('--bilinear', action='store_true', default=False, help='Use bilinear upsampling')
     parser.add_argument('--classes', '-c', type=int, default=2, help='Number of classes')
+    parser.add_argument('--attention', choices=['none', 'lite_sr_mhsa'], default='none',
+                        help='Bottleneck attention used by the checkpoint')
+    parser.add_argument('--attention-dim', type=int, default=128)
+    parser.add_argument('--attention-heads', type=int, default=4)
+    parser.add_argument('--attention-sr-ratio', type=int, default=2)
+    parser.add_argument('--load-mode', choices=['strict', 'backbone'], default='strict')
     
     return parser.parse_args()
 
@@ -92,17 +99,28 @@ if __name__ == '__main__':
     in_files = args.input
     out_files = get_output_filenames(args)
 
-    net = UNet(n_channels=3, n_classes=args.classes, bilinear=args.bilinear)
+    net = UNet(
+        n_channels=3,
+        n_classes=args.classes,
+        bilinear=args.bilinear,
+        attention=args.attention,
+        attention_dim=args.attention_dim,
+        attention_heads=args.attention_heads,
+        attention_sr_ratio=args.attention_sr_ratio,
+    )
 
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     logging.info(f'Loading model {args.model}')
     logging.info(f'Using device {device}')
 
     net.to(device=device)
-    state_dict = torch.load(args.model, map_location=device)
     # checkpoint 中保存了训练数据的 mask_values，预测输出 mask 时需要按它还原像素值。
-    mask_values = state_dict.pop('mask_values', [0, 1])
-    net.load_state_dict(state_dict)
+    mask_values = load_checkpoint(
+        net,
+        args.model,
+        map_location=device,
+        load_mode=args.load_mode,
+    )
 
     logging.info('Model loaded!')
 

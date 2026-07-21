@@ -11,7 +11,8 @@ logs/
 runs/
 wandb/
 results/
-docs/
+docs/*
+!docs/lite_bottleneck_attention_experiment_guide.md
 
 # model weights
 *.pth

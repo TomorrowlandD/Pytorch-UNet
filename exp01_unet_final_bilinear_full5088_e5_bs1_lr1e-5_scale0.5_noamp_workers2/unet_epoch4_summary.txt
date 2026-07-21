@@ -1,0 +1,19 @@
+U-Net exp01 epoch4 best checkpoint validation result
+
+valid images: 508
+mean Dice: 0.9794742027
+mean IoU: 0.9613934193
+min Dice: 0.8512483239
+min IoU: 0.7410203815
+max Dice: 0.9972764254
+max IoU: 0.9945676327
+
+checkpoint:
+checkpoints/exp01_unet_final_bilinear_full5088_e5_bs1_lr1e-5_scale0.5_noamp_workers2_best_epoch4.pth
+
+val ids:
+results/exp01_unet_final_bilinear_full5088_e5_bs1_lr1e-5_scale0.5_noamp_workers2/val_ids.txt
+
+per-image metrics:
+results/exp01_unet_final_bilinear_full5088_e5_bs1_lr1e-5_scale0.5_noamp_workers2/unet_epoch4_val_metrics.csv
+

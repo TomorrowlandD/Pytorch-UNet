@@ -1,0 +1,5 @@
+prompt,file,valid_images,mean_dice,mean_iou,min_dice,min_iou,max_dice,max_iou
+car,/root/autodl-tmp/projects/Pytorch-UNet/results/exp01_unet_final_bilinear_full5088_e5_bs1_lr1e-5_scale0.5_noamp_workers2/sam3_val_metrics.csv,508,0.9935022748,0.9870986631,0.9769007499,0.9548445566,0.9973435181,0.9947011126
+vehicle,/root/autodl-tmp/projects/Pytorch-UNet/results/exp01_unet_final_bilinear_full5088_e5_bs1_lr1e-5_scale0.5_noamp_workers2/sam3_prompt_sensitivity_val508/sam3_val508_prompt_vehicle_threshold0.3.csv,508,0.9926043493,0.9853285976,0.9762195072,0.9535437666,0.9969276117,0.9938740446
+automobile,/root/autodl-tmp/projects/Pytorch-UNet/results/exp01_unet_final_bilinear_full5088_e5_bs1_lr1e-5_scale0.5_noamp_workers2/sam3_prompt_sensitivity_val508/sam3_val508_prompt_automobile_threshold0.3.csv,508,0.9936442220,0.9873788374,0.9770811649,0.9551893379,0.9974193842,0.9948520533
+object,/root/autodl-tmp/projects/Pytorch-UNet/results/exp01_unet_final_bilinear_full5088_e5_bs1_lr1e-5_scale0.5_noamp_workers2/sam3_prompt_sensitivity_val508/sam3_val508_prompt_object_threshold0.3.csv,508,0.0000000000,0.0000000000,0.0000000000,0.0000000000,0.0000000000,0.0000000000

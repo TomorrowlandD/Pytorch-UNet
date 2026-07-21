@@ -8,8 +8,20 @@ from .unet_parts import *
 
 
 class UNet(nn.Module):
-    def __init__(self, n_channels, n_classes, bilinear=False):
+    def __init__(
+            self,
+            n_channels,
+            n_classes,
+            bilinear=False,
+            attention='none',
+            attention_dim=128,
+            attention_heads=4,
+            attention_sr_ratio=2,
+    ):
         super(UNet, self).__init__()
+
+        if attention not in {'none', 'lite_sr_mhsa'}:
+            raise ValueError(f'Unsupported attention type: {attention}')
 
         # n_channels: 输入图像的通道数。
         #   RGB 彩色图通常是 3，灰度图通常是 1。
@@ -20,6 +32,10 @@ class UNet(nn.Module):
         self.n_channels = n_channels
         self.n_classes = n_classes
         self.bilinear = bilinear
+        self.attention_type = attention
+        self.attention_dim = attention_dim
+        self.attention_heads = attention_heads
+        self.attention_sr_ratio = attention_sr_ratio
 
         # inc 是网络入口层。
         # 输入形状大致是: N x n_channels x H x W
@@ -47,7 +63,20 @@ class UNet(nn.Module):
         # down4 是编码器最底部，也可以理解为 U-Net 的瓶颈层。
         # 继续把空间尺寸缩小一半，同时把语义特征提得更抽象。
         # bilinear=False 时，输出通道是 1024；bilinear=True 时，输出通道是 512。
-        self.down4 = (Down(512, 1024 // factor))
+        bottleneck_channels = 1024 // factor
+        self.down4 = (Down(512, bottleneck_channels))
+
+        # 可插拔 Bottleneck Attention。关闭时使用 Identity，因此原 U-Net
+        # 的数据流和 checkpoint 参数名保持不变。
+        if attention == 'none':
+            self.bottleneck_attention = nn.Identity()
+        else:
+            self.bottleneck_attention = LiteSpatialReductionMHSA(
+                channels=bottleneck_channels,
+                attention_dim=attention_dim,
+                num_heads=attention_heads,
+                sr_ratio=attention_sr_ratio,
+            )
 
         # up1 到 up4 是解码器部分，也就是 U-Net 右半边。
         # 每个 Up 都接收两个输入:
@@ -76,6 +105,7 @@ class UNet(nn.Module):
         x3 = self.down2(x2)
         x4 = self.down3(x3)
         x5 = self.down4(x4)
+        x5 = self.bottleneck_attention(x5)
 
         # 解码器路径: 尺寸逐步恢复。
         # up1(x5, x4) 表示:

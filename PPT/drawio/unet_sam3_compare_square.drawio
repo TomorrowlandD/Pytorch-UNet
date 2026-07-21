@@ -1,0 +1,77 @@
+<mxfile host="app.diagrams.net" modified="2026-07-01T00:00:00.000Z" agent="ChatGPT" version="24.7.17" type="device">
+  <diagram id="unet-sam3-framework-square" name="U-Net vs SAM-3 对比框架（紧凑版）">
+    <mxGraphModel dx="1134" dy="734" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="620" pageHeight="720" math="0" shadow="0">
+      <root>
+        <mxCell id="0" />
+        <mxCell id="1" parent="0" />
+
+        <mxCell id="bg" value="" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#FFFFFF;strokeColor=#B8CBE0;strokeWidth=2;" vertex="1" parent="1">
+          <mxGeometry x="20" y="20" width="580" height="660" as="geometry" />
+        </mxCell>
+
+        <mxCell id="title" value="&lt;b&gt;监督式专用模型与零样本基础模型对比框架&lt;/b&gt;" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#FFFFFF;strokeColor=none;fontFamily=Microsoft YaHei;fontSize=20;fontColor=#004A8F;align=center;verticalAlign=middle;" vertex="1" parent="1">
+          <mxGeometry x="75" y="36" width="470" height="36" as="geometry" />
+        </mxCell>
+
+        <mxCell id="input" value="&lt;b&gt;Carvana 验证图像&lt;/b&gt;&lt;br&gt;&lt;font style=&quot;font-size:12px&quot;&gt;统一输入图像&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;arcSize=12;fillColor=#EAF3FB;strokeColor=#004A8F;strokeWidth=2;fontFamily=Microsoft YaHei;fontSize=15;fontColor=#1A1A1A;align=center;verticalAlign=middle;spacing=6;" vertex="1" parent="1">
+          <mxGeometry x="185" y="92" width="250" height="62" as="geometry" />
+        </mxCell>
+
+        <mxCell id="split" value="" style="ellipse;whiteSpace=wrap;html=1;fillColor=#004A8F;strokeColor=#004A8F;strokeWidth=1;" vertex="1" parent="1">
+          <mxGeometry x="302" y="190" width="16" height="16" as="geometry" />
+        </mxCell>
+
+        <mxCell id="leftCard" value="" style="rounded=1;whiteSpace=wrap;html=1;arcSize=8;fillColor=#F7FBFF;strokeColor=#7FA7D1;strokeWidth=1.5;" vertex="1" parent="1">
+          <mxGeometry x="100" y="230" width="180" height="165" as="geometry" />
+        </mxCell>
+        <mxCell id="leftHead" value="&lt;b&gt;监督式 U-Net&lt;/b&gt;&lt;br&gt;&lt;font style=&quot;font-size:12px&quot;&gt;U-Net Baseline&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;arcSize=8;fillColor=#004A8F;strokeColor=#004A8F;strokeWidth=1;fontFamily=Microsoft YaHei;fontSize=15;fontColor=#FFFFFF;align=center;verticalAlign=middle;" vertex="1" parent="1">
+          <mxGeometry x="100" y="230" width="180" height="50" as="geometry" />
+        </mxCell>
+        <mxCell id="leftText" value="像素级标注训练&lt;br&gt;CE + Dice 联合损失&lt;br&gt;输出 U-Net Mask" style="rounded=0;whiteSpace=wrap;html=1;fillColor=none;strokeColor=none;fontFamily=Microsoft YaHei;fontSize=13.5;fontColor=#1A1A1A;align=center;verticalAlign=middle;spacing=8;" vertex="1" parent="1">
+          <mxGeometry x="115" y="300" width="150" height="72" as="geometry" />
+        </mxCell>
+
+        <mxCell id="rightCard" value="" style="rounded=1;whiteSpace=wrap;html=1;arcSize=8;fillColor=#F7FBFF;strokeColor=#7FA7D1;strokeWidth=1.5;" vertex="1" parent="1">
+          <mxGeometry x="340" y="230" width="180" height="165" as="geometry" />
+        </mxCell>
+        <mxCell id="rightHead" value="&lt;b&gt;零样本 SAM-3&lt;/b&gt;&lt;br&gt;&lt;font style=&quot;font-size:12px&quot;&gt;SAM-3 Zero-shot&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;arcSize=8;fillColor=#004A8F;strokeColor=#004A8F;strokeWidth=1;fontFamily=Microsoft YaHei;fontSize=15;fontColor=#FFFFFF;align=center;verticalAlign=middle;" vertex="1" parent="1">
+          <mxGeometry x="340" y="230" width="180" height="50" as="geometry" />
+        </mxCell>
+        <mxCell id="rightText" value="文本提示：&lt;b&gt;car&lt;/b&gt;&lt;br&gt;零样本推理&lt;br&gt;输出 SAM-3 Mask" style="rounded=0;whiteSpace=wrap;html=1;fillColor=none;strokeColor=none;fontFamily=Microsoft YaHei;fontSize=13.5;fontColor=#1A1A1A;align=center;verticalAlign=middle;spacing=8;" vertex="1" parent="1">
+          <mxGeometry x="355" y="300" width="150" height="72" as="geometry" />
+        </mxCell>
+
+        <mxCell id="eval" value="&lt;b&gt;与同一 GT Mask 计算指标&lt;/b&gt;&lt;br&gt;&lt;font style=&quot;font-size:13px&quot;&gt;Dice / IoU 逐图评估&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;arcSize=12;fillColor=#EAF3FB;strokeColor=#004A8F;strokeWidth=2;fontFamily=Microsoft YaHei;fontSize=15;fontColor=#1A1A1A;align=center;verticalAlign=middle;spacing=6;" vertex="1" parent="1">
+          <mxGeometry x="160" y="455" width="300" height="62" as="geometry" />
+        </mxCell>
+
+        <mxCell id="result" value="&lt;b&gt;均值对比 + 逐图统计 + 适用边界分析&lt;/b&gt;&lt;br&gt;&lt;font style=&quot;font-size:12px&quot;&gt;分析性能差异、稳定性与部署取舍&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;arcSize=10;fillColor=#FFF4E8;strokeColor=#F28C28;strokeWidth=2;fontFamily=Microsoft YaHei;fontSize=14;fontColor=#1A1A1A;align=center;verticalAlign=middle;spacing=5;" vertex="1" parent="1">
+          <mxGeometry x="110" y="545" width="400" height="50" as="geometry" />
+        </mxCell>
+
+        <mxCell id="note" value="控制变量：同一数据｜同一标注｜同一指标" style="rounded=1;whiteSpace=wrap;html=1;arcSize=18;fillColor=#FFFFFF;strokeColor=#B8CBE0;strokeWidth=1;fontFamily=Microsoft YaHei;fontSize=12;fontColor=#004A8F;align=center;verticalAlign=middle;" vertex="1" parent="1">
+          <mxGeometry x="175" y="615" width="270" height="28" as="geometry" />
+        </mxCell>
+
+        <mxCell id="e1" value="" style="endArrow=block;html=1;rounded=0;strokeColor=#004A8F;strokeWidth=2;" edge="1" parent="1" source="input" target="split">
+          <mxGeometry width="50" height="50" relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e2" value="" style="endArrow=block;html=1;rounded=0;strokeColor=#004A8F;strokeWidth=2;" edge="1" parent="1" source="split" target="leftHead">
+          <mxGeometry width="50" height="50" relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e3" value="" style="endArrow=block;html=1;rounded=0;strokeColor=#004A8F;strokeWidth=2;" edge="1" parent="1" source="split" target="rightHead">
+          <mxGeometry width="50" height="50" relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e4" value="" style="endArrow=block;html=1;rounded=0;strokeColor=#004A8F;strokeWidth=2;" edge="1" parent="1" source="leftCard" target="eval">
+          <mxGeometry width="50" height="50" relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e5" value="" style="endArrow=block;html=1;rounded=0;strokeColor=#004A8F;strokeWidth=2;" edge="1" parent="1" source="rightCard" target="eval">
+          <mxGeometry width="50" height="50" relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e6" value="" style="endArrow=block;html=1;rounded=0;strokeColor=#004A8F;strokeWidth=2;" edge="1" parent="1" source="eval" target="result">
+          <mxGeometry width="50" height="50" relative="1" as="geometry" />
+        </mxCell>
+      </root>
+    </mxGraphModel>
+  </diagram>
+</mxfile>

@@ -9,6 +9,124 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 
+class LiteSpatialReductionMHSA(nn.Module):
+    """Lightweight global attention for the lowest-resolution U-Net feature map.
+
+    Queries keep the full bottleneck resolution, while keys and values are
+    spatially reduced. The module preserves the input shape and is wrapped in
+    a small LayerScale residual so it can be inserted without disrupting the
+    original encoder-decoder path.
+    """
+
+    def __init__(
+            self,
+            channels: int,
+            attention_dim: int = 128,
+            num_heads: int = 4,
+            sr_ratio: int = 2,
+            layer_scale_init: float = 1e-3,
+    ):
+        super().__init__()
+
+        if channels < 1:
+            raise ValueError('channels must be at least 1')
+        if attention_dim < 1:
+            raise ValueError('attention_dim must be at least 1')
+        if num_heads < 1:
+            raise ValueError('num_heads must be at least 1')
+        if attention_dim % num_heads != 0:
+            raise ValueError('attention_dim must be divisible by num_heads')
+        if sr_ratio < 1:
+            raise ValueError('sr_ratio must be at least 1')
+        if layer_scale_init < 0:
+            raise ValueError('layer_scale_init must be non-negative')
+
+        self.channels = channels
+        self.attention_dim = attention_dim
+        self.num_heads = num_heads
+        self.sr_ratio = sr_ratio
+
+        # Project the 512-channel bilinear bottleneck to a compact attention
+        # space. Keeping this projection bias-free controls parameter count.
+        self.reduce = nn.Conv2d(channels, attention_dim, kernel_size=1, bias=False)
+
+        # A depthwise convolution injects lightweight two-dimensional position
+        # information without changing the feature-map shape.
+        self.position = nn.Conv2d(
+            attention_dim,
+            attention_dim,
+            kernel_size=3,
+            padding=1,
+            groups=attention_dim,
+        )
+
+        self.q_norm = nn.LayerNorm(attention_dim)
+        self.kv_norm = nn.LayerNorm(attention_dim)
+        self.attention = nn.MultiheadAttention(
+            embed_dim=attention_dim,
+            num_heads=num_heads,
+            dropout=0.0,
+            batch_first=True,
+        )
+        self.expand = nn.Conv2d(attention_dim, channels, kernel_size=1, bias=False)
+
+        # Per-channel LayerScale starts the new branch near the identity path.
+        self.layer_scale = nn.Parameter(
+            torch.full((channels,), float(layer_scale_init))
+        )
+
+    def forward(self, x):
+        if x.ndim != 4:
+            raise ValueError(f'Expected a 4D NCHW tensor, got shape {tuple(x.shape)}')
+        if x.shape[1] != self.channels:
+            raise ValueError(
+                f'Expected {self.channels} input channels, got {x.shape[1]}'
+            )
+
+        batch_size, _, height, width = x.shape
+        if height < self.sr_ratio or width < self.sr_ratio:
+            raise ValueError(
+                f'Bottleneck spatial size {(height, width)} is smaller than '
+                f'sr_ratio={self.sr_ratio}'
+            )
+
+        features = self.reduce(x)
+        features = features + self.position(features)
+
+        # Q keeps all H*W positions.
+        query = features.flatten(2).transpose(1, 2)
+
+        # K/V summarize the complete feature map at lower spatial resolution.
+        if self.sr_ratio > 1:
+            kv_features = F.avg_pool2d(
+                features,
+                kernel_size=self.sr_ratio,
+                stride=self.sr_ratio,
+            )
+        else:
+            kv_features = features
+        key_value = kv_features.flatten(2).transpose(1, 2)
+
+        query = self.q_norm(query)
+        key_value = self.kv_norm(key_value)
+        attended, _ = self.attention(
+            query,
+            key_value,
+            key_value,
+            need_weights=False,
+        )
+
+        attended = attended.transpose(1, 2).reshape(
+            batch_size,
+            self.attention_dim,
+            height,
+            width,
+        )
+        delta = self.expand(attended)
+        scale = self.layer_scale.view(1, -1, 1, 1)
+        return x + scale * delta
+
+
 class DoubleConv(nn.Module):
     """(convolution => [BN] => ReLU) * 2.
 

@@ -1,0 +1,9 @@
+category,priority,image_id,unet_dice,sam3_dice,delta_dice_sam3_minus_unet,reason,original_pattern,gt_mask_pattern
+sam3_strong_win,1,79a7691a90b1_15,0.8512483239173889,0.99492775702393,0.14367943310654108,largest positive delta; use to inspect why U-Net fails while SAM3 stays complete,data/imgs/79a7691a90b1_15.*,data/masks/79a7691a90b1_15_mask.*
+sam3_strong_win,2,8d5423cb763c_09,0.868220865726471,0.9959094497292769,0.12768858400280592,large positive delta with a different image prefix; avoids overusing one car sequence,data/imgs/8d5423cb763c_09.*,data/masks/8d5423cb763c_09_mask.*
+sam3_strong_win,3,eeb7eeca738e_10,0.8710626363754272,0.9957063482756965,0.12464371190026924,large positive delta with another image prefix; useful for checking repeated SAM3 advantage,data/imgs/eeb7eeca738e_10.*,data/masks/eeb7eeca738e_10_mask.*
+unet_win,1,430f0cb5666c_05,0.9876834154129028,0.9775218038270623,-0.010161611585840502,most negative delta; use to inspect SAM3 prompt or boundary failure,data/imgs/430f0cb5666c_05.*,data/masks/430f0cb5666c_05_mask.*
+unet_win,2,69915dab0755_13,0.9907946586608887,0.9812599388922238,-0.009534719768664823,second most negative delta; U-Net better while both scores remain high,data/imgs/69915dab0755_13.*,data/masks/69915dab0755_13_mask.*
+unet_win,3,90b65c521a8b_03,0.9943985342979431,0.9882325458008067,-0.006165988497136454,negative delta with high U-Net Dice; useful for discussing task-specific fit,data/imgs/90b65c521a8b_03.*,data/masks/90b65c521a8b_03_mask.*
+near_tie,1,28d9a149cb02_11,0.9928483366966248,0.9928396722686335,-0.000008664427991300627,absolute delta closest to zero; both models perform almost identically,data/imgs/28d9a149cb02_11.*,data/masks/28d9a149cb02_11_mask.*
+near_tie,2,42a3297ccd4b_10,0.9946608543395996,0.9947001170707687,0.0000392627311690541,near-zero delta with high Dice for both models; good regular-case example,data/imgs/42a3297ccd4b_10.*,data/masks/42a3297ccd4b_10_mask.*

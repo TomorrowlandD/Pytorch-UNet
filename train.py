@@ -4,6 +4,7 @@ import logging
 import os
 import random
 import sys
+import numpy as np
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -19,6 +20,7 @@ from evaluate import evaluate
 from unet import UNet
 from utils.data_loading import BasicDataset, CarvanaDataset
 from utils.dice_score import dice_loss
+from utils.model_loading import load_checkpoint
 
 dir_img = Path('./data/imgs/')      # 原始输入图片目录，Dataset 会从这里读取 image。
 dir_mask = Path('./data/masks/')    # 标注 mask 目录，Dataset 会从这里读取每张 image 对应的监督标签。
@@ -29,6 +31,15 @@ LOSS_ALIASES = {
     'cross_entropy+dice': 'ce-dice',
     'bce+dice': 'bce-dice',
 }
+
+
+def set_random_seed(seed: int):
+    if seed < 0:
+        raise ValueError('--seed must be non-negative')
+    random.seed(seed)
+    np.random.seed(seed)
+    torch.manual_seed(seed)
+    torch.cuda.manual_seed_all(seed)
 
 
 def tensor_to_float(value):
@@ -103,6 +114,7 @@ def train_model(
         loss_name: str = 'auto',
         exp_name: str = 'default',
         results_dir: Path = Path('./results'),
+        seed: int = 0,
 ):
     loss_name = resolve_loss_name(loss_name, model.n_classes)
 
@@ -118,11 +130,24 @@ def train_model(
     # val_set是验证集,train_set是训练集
     n_val = int(len(dataset) * val_percent)
     n_train = len(dataset) - n_val
-    train_set, val_set = random_split(dataset, [n_train, n_val], generator=torch.Generator().manual_seed(0))
+    # The split remains fixed at seed 0 to preserve the official 508-image
+    # validation set. ``seed`` controls model/training randomness only.
+    split_generator = torch.Generator().manual_seed(0)
+    train_set, val_set = random_split(
+        dataset,
+        [n_train, n_val],
+        generator=split_generator,
+    )
 
     # 3. 创建 DataLoader：负责反复调用 Dataset.__getitem__，并把多个样本组成 batch。
     loader_args = dict(batch_size=batch_size, num_workers=num_workers, pin_memory=True)
-    train_loader = DataLoader(train_set, shuffle=True, **loader_args)
+    shuffle_generator = torch.Generator().manual_seed(seed)
+    train_loader = DataLoader(
+        train_set,
+        shuffle=True,
+        generator=shuffle_generator,
+        **loader_args,
+    )
     val_loader = DataLoader(val_set, shuffle=False, drop_last=True, **loader_args)
     metrics_file = init_metrics_file(results_dir, exp_name)
 
@@ -135,6 +160,9 @@ def train_model(
              val_percent=val_percent, save_checkpoint=save_checkpoint, img_scale=img_scale, amp=amp,
              num_workers=num_workers, weight_decay=weight_decay, momentum=momentum,
              gradient_clipping=gradient_clipping, loss=loss_name,
+             attention=model.attention_type, attention_dim=model.attention_dim,
+             attention_heads=model.attention_heads,
+             attention_sr_ratio=model.attention_sr_ratio, seed=seed,
              exp_name=exp_name, results_dir=str(results_dir))
     )
 
@@ -150,6 +178,11 @@ def train_model(
         Mixed Precision: {amp}
         Data workers:    {num_workers}
         Loss:            {loss_name}
+        Attention:       {model.attention_type}
+        Attention dim:   {model.attention_dim}
+        Attention heads: {model.attention_heads}
+        Attention SR:    {model.attention_sr_ratio}
+        Seed:            {seed}
     ''')
 
 
@@ -307,6 +340,8 @@ def get_args():
     parser.add_argument('--learning-rate', '-l', metavar='LR', type=float, default=1e-5,
                         help='Learning rate', dest='lr')
     parser.add_argument('--load', '-f', type=str, default=False, help='Load model from a .pth file')
+    parser.add_argument('--load-mode', choices=['strict', 'backbone'], default='strict',
+                        help='Use backbone only to initialize an attention model from an old U-Net checkpoint')
     parser.add_argument('--scale', '-s', type=float, default=0.5, help='Downscaling factor of the images')
     parser.add_argument('--validation', '-v', dest='val', type=float, default=10.0,
                         help='Percent of the data that is used as validation (0-100)')
@@ -316,6 +351,16 @@ def get_args():
     parser.add_argument('--results-dir', type=str, default='results', help='Directory for per-experiment result files')
     parser.add_argument('--bilinear', action='store_true', default=False, help='Use bilinear upsampling')
     parser.add_argument('--classes', '-c', type=int, default=2, help='Number of classes')
+    parser.add_argument('--attention', choices=['none', 'lite_sr_mhsa'], default='none',
+                        help='Optional bottleneck attention module')
+    parser.add_argument('--attention-dim', type=int, default=128,
+                        help='Embedding dimension used inside bottleneck attention')
+    parser.add_argument('--attention-heads', type=int, default=4,
+                        help='Number of bottleneck attention heads')
+    parser.add_argument('--attention-sr-ratio', type=int, default=2,
+                        help='Spatial reduction ratio for attention keys and values')
+    parser.add_argument('--seed', type=int, default=0,
+                        help='Random seed for model initialization and training order')
     parser.add_argument('--loss', type=str, default='auto',
                         choices=['auto', 'ce', 'cross_entropy', 'dice', 'ce-dice', 'cross_entropy+dice',
                                  'bce', 'bce-dice', 'bce+dice'],
@@ -328,25 +373,33 @@ if __name__ == '__main__':
     args = get_args()
 
     logging.basicConfig(level=logging.INFO, format='%(levelname)s: %(message)s')
+    set_random_seed(args.seed)
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     logging.info(f'Using device {device}')
 
     # Change here to adapt to your data
     # n_channels=3 for RGB images
     # n_classes is the number of probabilities you want to get per pixel
-    model = UNet(n_channels=3, n_classes=args.classes, bilinear=args.bilinear)
+    model = UNet(
+        n_channels=3,
+        n_classes=args.classes,
+        bilinear=args.bilinear,
+        attention=args.attention,
+        attention_dim=args.attention_dim,
+        attention_heads=args.attention_heads,
+        attention_sr_ratio=args.attention_sr_ratio,
+    )
     model = model.to(memory_format=torch.channels_last)
 
     logging.info(f'Network:\n'
                  f'\t{model.n_channels} input channels\n'
                  f'\t{model.n_classes} output channels (classes)\n'
-                 f'\t{"Bilinear" if model.bilinear else "Transposed conv"} upscaling')
+                 f'\t{"Bilinear" if model.bilinear else "Transposed conv"} upscaling\n'
+                 f'\t{model.attention_type} bottleneck attention')
 
     if args.load:
-        state_dict = torch.load(args.load, map_location=device)
-        del state_dict['mask_values']
-        model.load_state_dict(state_dict)
-        logging.info(f'Model loaded from {args.load}')
+        load_checkpoint(model, args.load, map_location=device, load_mode=args.load_mode)
+        logging.info(f'Model loaded from {args.load} with mode={args.load_mode}')
 
     model.to(device=device)
 
@@ -364,7 +417,8 @@ if __name__ == '__main__':
             num_workers=args.num_workers,
             loss_name=args.loss,
             exp_name=args.exp_name,
-            results_dir=Path(args.results_dir)
+            results_dir=Path(args.results_dir),
+            seed=args.seed,
         )
     except torch.cuda.OutOfMemoryError:
         logging.error('Detected OutOfMemoryError! '
@@ -384,5 +438,6 @@ if __name__ == '__main__':
             num_workers=args.num_workers,
             loss_name=args.loss,
             exp_name=args.exp_name,
-            results_dir=Path(args.results_dir)
+            results_dir=Path(args.results_dir),
+            seed=args.seed,
         )

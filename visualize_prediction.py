@@ -8,6 +8,7 @@ from PIL import Image
 
 from predict import predict_img
 from unet import UNet
+from utils.model_loading import load_checkpoint
 
 
 IMAGE_EXTENSIONS = {'.jpg', '.jpeg', '.png', '.bmp', '.gif', '.tif', '.tiff'}
@@ -26,6 +27,12 @@ def get_args():
     parser.add_argument('--scale', '-s', type=float, default=0.5, help='Scale factor for model input')
     parser.add_argument('--classes', '-c', type=int, default=2, help='Number of output classes')
     parser.add_argument('--bilinear', action='store_true', default=False, help='Use bilinear upsampling')
+    parser.add_argument('--attention', choices=['none', 'lite_sr_mhsa'], default='none',
+                        help='Bottleneck attention used by the checkpoint')
+    parser.add_argument('--attention-dim', type=int, default=128)
+    parser.add_argument('--attention-heads', type=int, default=4)
+    parser.add_argument('--attention-sr-ratio', type=int, default=2)
+    parser.add_argument('--load-mode', choices=['strict', 'backbone'], default='strict')
     parser.add_argument('--mask-threshold', '-t', type=float, default=0.5,
                         help='Minimum probability value for foreground in single-class models')
     parser.add_argument('--limit', type=int, default=5, help='Maximum number of images to visualize')
@@ -80,11 +87,22 @@ def save_overlay(image: Image.Image, pred_mask: np.ndarray, output_file: Path):
 
 
 def load_model(args, device):
-    net = UNet(n_channels=3, n_classes=args.classes, bilinear=args.bilinear)
+    net = UNet(
+        n_channels=3,
+        n_classes=args.classes,
+        bilinear=args.bilinear,
+        attention=args.attention,
+        attention_dim=args.attention_dim,
+        attention_heads=args.attention_heads,
+        attention_sr_ratio=args.attention_sr_ratio,
+    )
     net.to(device=device)
-    state_dict = torch.load(args.model, map_location=device)
-    state_dict.pop('mask_values', None)
-    net.load_state_dict(state_dict)
+    load_checkpoint(
+        net,
+        args.model,
+        map_location=device,
+        load_mode=args.load_mode,
+    )
     return net
 
 
