@@ -4,6 +4,7 @@
 unet_model.py 会导入这些模块，再把它们组装成完整的 UNet。
 """
 
+import math
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -25,6 +26,7 @@ class LiteSpatialReductionMHSA(nn.Module):
             num_heads: int = 4,
             sr_ratio: int = 2,
             layer_scale_init: float = 1e-3,
+            max_layer_scale: float = 1e-2,
     ):
         super().__init__()
 
@@ -38,8 +40,13 @@ class LiteSpatialReductionMHSA(nn.Module):
             raise ValueError('attention_dim must be divisible by num_heads')
         if sr_ratio < 1:
             raise ValueError('sr_ratio must be at least 1')
-        if layer_scale_init < 0:
-            raise ValueError('layer_scale_init must be non-negative')
+        if max_layer_scale <= 0:
+            raise ValueError('max_layer_scale must be positive')
+        if not 0 <= layer_scale_init < max_layer_scale:
+            raise ValueError(
+                'layer_scale_init must be non-negative and smaller than '
+                'max_layer_scale'
+            )
 
         self.channels = channels
         self.attention_dim = attention_dim
@@ -68,12 +75,24 @@ class LiteSpatialReductionMHSA(nn.Module):
             dropout=0.0,
             batch_first=True,
         )
+        self.output_norm = nn.LayerNorm(attention_dim)
         self.expand = nn.Conv2d(attention_dim, channels, kernel_size=1, bias=False)
 
-        # Per-channel LayerScale starts the new branch near the identity path.
-        self.layer_scale = nn.Parameter(
-            torch.full((channels,), float(layer_scale_init))
+        # Parameterize the residual gate through tanh so its effective value
+        # can never grow beyond max_layer_scale. This prevents RMSprop from
+        # turning a lightweight residual into a dominant bottleneck branch.
+        initial_ratio = float(layer_scale_init / max_layer_scale)
+        initial_logit = math.atanh(initial_ratio)
+        self.layer_scale_logits = nn.Parameter(
+            torch.full((channels,), initial_logit)
         )
+        self.register_buffer(
+            'max_layer_scale',
+            torch.tensor(float(max_layer_scale)),
+        )
+
+    def effective_layer_scale(self):
+        return self.max_layer_scale * torch.tanh(self.layer_scale_logits)
 
     def forward(self, x):
         if x.ndim != 4:
@@ -115,6 +134,7 @@ class LiteSpatialReductionMHSA(nn.Module):
             key_value,
             need_weights=False,
         )
+        attended = self.output_norm(attended)
 
         attended = attended.transpose(1, 2).reshape(
             batch_size,
@@ -123,7 +143,7 @@ class LiteSpatialReductionMHSA(nn.Module):
             width,
         )
         delta = self.expand(attended)
-        scale = self.layer_scale.view(1, -1, 1, 1)
+        scale = self.effective_layer_scale().view(1, -1, 1, 1)
         return x + scale * delta
 
 

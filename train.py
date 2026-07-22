@@ -42,6 +42,103 @@ def set_random_seed(seed: int):
     torch.cuda.manual_seed_all(seed)
 
 
+def build_optimizer(
+        model,
+        learning_rate: float,
+        weight_decay: float,
+        momentum: float,
+        attention_lr_scale: float,
+        attention_momentum: float,
+):
+    if attention_lr_scale <= 0:
+        raise ValueError('--attention-lr-scale must be positive')
+    if not 0 <= attention_momentum < 1:
+        raise ValueError('--attention-momentum must be in [0, 1)')
+
+    if model.attention_type == 'none':
+        parameter_groups = [{
+            'params': model.parameters(),
+            'lr': learning_rate,
+            'momentum': momentum,
+            'group_name': 'backbone',
+        }]
+    else:
+        attention_parameters = list(model.bottleneck_attention.parameters())
+        attention_parameter_ids = {id(parameter) for parameter in attention_parameters}
+        backbone_parameters = [
+            parameter for parameter in model.parameters()
+            if id(parameter) not in attention_parameter_ids
+        ]
+        parameter_groups = [
+            {
+                'params': backbone_parameters,
+                'lr': learning_rate,
+                'momentum': momentum,
+                'group_name': 'backbone',
+            },
+            {
+                'params': attention_parameters,
+                'lr': learning_rate * attention_lr_scale,
+                'momentum': attention_momentum,
+                'group_name': 'attention',
+            },
+        ]
+
+    return optim.RMSprop(
+        parameter_groups,
+        lr=learning_rate,
+        weight_decay=weight_decay,
+        momentum=momentum,
+        foreach=True,
+    )
+
+
+@torch.no_grad()
+def get_attention_diagnostics(model):
+    if model.attention_type == 'none':
+        return {}
+
+    module = model.bottleneck_attention
+    scale = module.effective_layer_scale().detach()
+    named_parameters = [
+        (name, parameter.detach())
+        for name, parameter in module.named_parameters()
+        if name != 'layer_scale_logits'
+    ]
+    trainable_parameters = [parameter for _, parameter in named_parameters]
+    all_finite = bool(torch.isfinite(scale).all()) and all(
+        bool(torch.isfinite(parameter).all())
+        for parameter in trainable_parameters
+    )
+    if not all_finite:
+        raise FloatingPointError('Non-finite parameter detected in bottleneck attention')
+
+    normalization_prefixes = ('q_norm.', 'kv_norm.', 'output_norm.')
+    core_parameters = [
+        parameter for name, parameter in named_parameters
+        if not name.startswith(normalization_prefixes)
+    ]
+    norm_parameters = [
+        parameter for name, parameter in named_parameters
+        if name.startswith(normalization_prefixes)
+    ]
+    core_parameter_abs_max = max(
+        parameter.abs().max().item()
+        for parameter in core_parameters
+    )
+    norm_parameter_abs_max = max(
+        parameter.abs().max().item()
+        for parameter in norm_parameters
+    )
+    return {
+        'attention scale mean': scale.mean().item(),
+        'attention scale abs mean': scale.abs().mean().item(),
+        'attention scale abs max': scale.abs().max().item(),
+        'attention core parameter abs max': core_parameter_abs_max,
+        'attention norm parameter abs max': norm_parameter_abs_max,
+    }
+
+
 def tensor_to_float(value):
     return value.item() if hasattr(value, 'item') else float(value)
 
@@ -115,6 +212,8 @@ def train_model(
         exp_name: str = 'default',
         results_dir: Path = Path('./results'),
         seed: int = 0,
+        attention_lr_scale: float = 0.1,
+        attention_momentum: float = 0.9,
 ):
     loss_name = resolve_loss_name(loss_name, model.n_classes)
 
@@ -162,7 +261,10 @@ def train_model(
              gradient_clipping=gradient_clipping, loss=loss_name,
              attention=model.attention_type, attention_dim=model.attention_dim,
              attention_heads=model.attention_heads,
-             attention_sr_ratio=model.attention_sr_ratio, seed=seed,
+             attention_sr_ratio=model.attention_sr_ratio,
+             attention_max_scale=model.attention_max_scale,
+             attention_lr_scale=attention_lr_scale,
+             attention_momentum=attention_momentum, seed=seed,
              exp_name=exp_name, results_dir=str(results_dir))
     )
 
@@ -182,6 +284,9 @@ def train_model(
         Attention dim:   {model.attention_dim}
         Attention heads: {model.attention_heads}
         Attention SR:    {model.attention_sr_ratio}
+        Attention max scale: {model.attention_max_scale}
+        Attention LR scale:  {attention_lr_scale}
+        Attention momentum:  {attention_momentum}
         Seed:            {seed}
     ''')
 
@@ -190,8 +295,14 @@ def train_model(
     # 4. Set up the optimizer, the loss, the learning rate scheduler and the loss scaling for AMP
 
     # 优化器=>根据梯度更新模型参数
-    optimizer = optim.RMSprop(model.parameters(),
-                              lr=learning_rate, weight_decay=weight_decay, momentum=momentum, foreach=True)
+    optimizer = build_optimizer(
+        model=model,
+        learning_rate=learning_rate,
+        weight_decay=weight_decay,
+        momentum=momentum,
+        attention_lr_scale=attention_lr_scale,
+        attention_momentum=attention_momentum,
+    )
     # 学习率调度器=>根据验证 Dice 调整学习率
     scheduler = optim.lr_scheduler.ReduceLROnPlateau(optimizer, 'max', patience=5)  # goal: maximize Dice score
     # 自动混合精度缩放器 (GradScaler)=>AMP 混合精度训练时使用
@@ -284,11 +395,21 @@ def train_model(
                         last_val_metrics = evaluate(model, val_loader, device, amp)
                         val_score = last_val_metrics['dice']
                         val_iou = last_val_metrics['iou']
+                        attention_diagnostics = get_attention_diagnostics(model)
                         # 根据验证 Dice 调整学习率。
                         scheduler.step(val_score)
 
                         logging.info('Validation Dice score: {}'.format(val_score))
                         logging.info('Validation IoU score: {}'.format(val_iou))
+                        if attention_diagnostics:
+                            logging.info(
+                                'Attention diagnostics: {}'.format(
+                                    ', '.join(
+                                        f'{key}={value:.6g}'
+                                        for key, value in attention_diagnostics.items()
+                                    )
+                                )
+                            )
                         try:
                             # 把验证结果记录到 W&B，包括：学习率;验证 Dice;输入图片;真实 mask;预测 mask;权重和梯度直方图。
                             experiment.log({
@@ -302,6 +423,7 @@ def train_model(
                                 },
                                 'step': global_step,
                                 'epoch': epoch,
+                                **attention_diagnostics,
                                 **histograms
                             })
                         except:
@@ -324,12 +446,14 @@ def train_model(
         logging.info(f'Metrics saved to {metrics_file}')
 
         if save_checkpoint:
-            Path(dir_checkpoint).mkdir(parents=True, exist_ok=True) #创建 checkpoint 文件夹
+            experiment_checkpoint_dir = Path(dir_checkpoint) / exp_name
+            experiment_checkpoint_dir.mkdir(parents=True, exist_ok=True)
             state_dict = model.state_dict()         # 取出模型参数
             # 保存 mask_values，预测阶段需要用它把类别编号还原成原始 mask 像素值。
             state_dict['mask_values'] = dataset.mask_values     # 保存 mask 类别值信息
-            torch.save(state_dict, str(dir_checkpoint / 'checkpoint_epoch{}.pth'.format(epoch)))
-            logging.info(f'Checkpoint {epoch} saved!')
+            checkpoint_path = experiment_checkpoint_dir / f'checkpoint_epoch{epoch}.pth'
+            torch.save(state_dict, str(checkpoint_path))
+            logging.info(f'Checkpoint {epoch} saved to {checkpoint_path}!')
 
 
 # 让别人可以在命令行中设置训练参数。
@@ -359,6 +483,12 @@ def get_args():
                         help='Number of bottleneck attention heads')
     parser.add_argument('--attention-sr-ratio', type=int, default=2,
                         help='Spatial reduction ratio for attention keys and values')
+    parser.add_argument('--attention-max-scale', type=float, default=1e-2,
+                        help='Maximum absolute residual scale for bottleneck attention')
+    parser.add_argument('--attention-lr-scale', type=float, default=0.1,
+                        help='Attention learning rate as a fraction of the backbone learning rate')
+    parser.add_argument('--attention-momentum', type=float, default=0.9,
+                        help='RMSprop momentum used only by attention parameters')
     parser.add_argument('--seed', type=int, default=0,
                         help='Random seed for model initialization and training order')
     parser.add_argument('--loss', type=str, default='auto',
@@ -388,6 +518,7 @@ if __name__ == '__main__':
         attention_dim=args.attention_dim,
         attention_heads=args.attention_heads,
         attention_sr_ratio=args.attention_sr_ratio,
+        attention_max_scale=args.attention_max_scale,
     )
     model = model.to(memory_format=torch.channels_last)
 
@@ -419,6 +550,8 @@ if __name__ == '__main__':
             exp_name=args.exp_name,
             results_dir=Path(args.results_dir),
             seed=args.seed,
+            attention_lr_scale=args.attention_lr_scale,
+            attention_momentum=args.attention_momentum,
         )
     except torch.cuda.OutOfMemoryError:
         logging.error('Detected OutOfMemoryError! '
@@ -440,4 +573,6 @@ if __name__ == '__main__':
             exp_name=args.exp_name,
             results_dir=Path(args.results_dir),
             seed=args.seed,
+            attention_lr_scale=args.attention_lr_scale,
+            attention_momentum=args.attention_momentum,
         )

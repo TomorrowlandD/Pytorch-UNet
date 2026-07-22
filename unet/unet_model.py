@@ -17,6 +17,7 @@ class UNet(nn.Module):
             attention_dim=128,
             attention_heads=4,
             attention_sr_ratio=2,
+            attention_max_scale=1e-2,
     ):
         super(UNet, self).__init__()
 
@@ -36,6 +37,7 @@ class UNet(nn.Module):
         self.attention_dim = attention_dim
         self.attention_heads = attention_heads
         self.attention_sr_ratio = attention_sr_ratio
+        self.attention_max_scale = attention_max_scale
 
         # inc 是网络入口层。
         # 输入形状大致是: N x n_channels x H x W
@@ -76,6 +78,7 @@ class UNet(nn.Module):
                 attention_dim=attention_dim,
                 num_heads=attention_heads,
                 sr_ratio=attention_sr_ratio,
+                max_layer_scale=attention_max_scale,
             )
 
         # up1 到 up4 是解码器部分，也就是 U-Net 右半边。

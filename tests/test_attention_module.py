@@ -24,7 +24,28 @@ class LiteSpatialReductionMHSATest(unittest.TestCase):
         self.assertIsNotNone(inputs.grad)
         self.assertIsNotNone(module.reduce.weight.grad)
         self.assertIsNotNone(module.expand.weight.grad)
-        self.assertIsNotNone(module.layer_scale.grad)
+        self.assertIsNotNone(module.layer_scale_logits.grad)
+
+    def test_effective_layer_scale_is_bounded(self):
+        module = LiteSpatialReductionMHSA(
+            channels=32,
+            attention_dim=16,
+            num_heads=4,
+            sr_ratio=2,
+            layer_scale_init=1e-3,
+            max_layer_scale=1e-2,
+        )
+        initial_scale = module.effective_layer_scale()
+        self.assertTrue(torch.allclose(
+            initial_scale,
+            torch.full_like(initial_scale, 1e-3),
+            atol=1e-8,
+        ))
+
+        with torch.no_grad():
+            module.layer_scale_logits.fill_(100.0)
+        saturated_scale = module.effective_layer_scale()
+        self.assertLessEqual(saturated_scale.abs().max().item(), 1e-2)
 
     def test_invalid_head_configuration_is_rejected(self):
         with self.assertRaisesRegex(ValueError, 'divisible'):

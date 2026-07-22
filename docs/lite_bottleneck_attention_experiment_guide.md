@@ -231,6 +231,7 @@ head_dim=32
 spatial_reduction_ratio=2
 attention_dropout=0.0
 layer_scale_init=1e-3
+max_layer_scale=1e-2
 ```
 
 第一轮不要同时测试 `attention_dim=64/256`、2/8 heads 或多个插入位置。只有确认该模块有效后，才考虑进一步消融。
@@ -297,7 +298,8 @@ nn.Conv2d(
 output = x + gamma * attention_delta
 ```
 
-其中 `gamma` 初始值建议为 `1e-3`。
+其中有效 `gamma` 初始值为 `1e-3`，并通过 `tanh` 门控严格限制在
+`[-1e-2, +1e-2]`。
 
 作用：
 
@@ -305,8 +307,12 @@ output = x + gamma * attention_delta
 - 避免随机初始化 Attention 立即破坏旧特征；
 - 提高加载原 checkpoint 后微调的稳定性；
 - 即使 Attention 暂时没有学好，主干仍保留原始信息。
+- 防止 RMSprop 在大量 batch 更新后将残差系数放大到 1 以上。
 
-不建议第一版使用很大的残差比例。
+2026-07-22 的首次 smoke test 中，未约束 LayerScale 从 `0.001` 增长到
+`abs mean=0.300`、`abs max=1.647`，同时 Attention 权重明显膨胀，导致验证
+Dice 从约 `0.57` 下降到 `0.096`。因此后续实现必须使用有界门控，并为
+Attention 参数设置独立的低学习率和较低 momentum。
 
 ### 4.8 理论开销
 
@@ -340,6 +346,7 @@ class LiteSpatialReductionMHSA(nn.Module):
             num_heads: int = 4,
             sr_ratio: int = 2,
             layer_scale_init: float = 1e-3,
+            max_layer_scale: float = 1e-2,
     ):
         super().__init__()
 
@@ -375,6 +382,7 @@ class LiteSpatialReductionMHSA(nn.Module):
             dropout=0.0,
             batch_first=True,
         )
+        self.output_norm = nn.LayerNorm(attention_dim)
 
         self.expand = nn.Conv2d(
             attention_dim,
@@ -382,9 +390,18 @@ class LiteSpatialReductionMHSA(nn.Module):
             kernel_size=1,
             bias=False,
         )
-        self.layer_scale = nn.Parameter(
-            torch.full((channels,), layer_scale_init)
+        initial_ratio = layer_scale_init / max_layer_scale
+        initial_logit = math.atanh(initial_ratio)
+        self.layer_scale_logits = nn.Parameter(
+            torch.full((channels,), initial_logit)
         )
+        self.register_buffer(
+            'max_layer_scale',
+            torch.tensor(float(max_layer_scale)),
+        )
+
+    def effective_layer_scale(self):
+        return self.max_layer_scale * torch.tanh(self.layer_scale_logits)
 
     def forward(self, x):
         batch_size, _, height, width = x.shape
@@ -414,6 +431,7 @@ class LiteSpatialReductionMHSA(nn.Module):
             key_value,
             need_weights=False,
         )
+        attended = self.output_norm(attended)
 
         attended = attended.transpose(1, 2).reshape(
             batch_size,
@@ -423,7 +441,7 @@ class LiteSpatialReductionMHSA(nn.Module):
         )
         delta = self.expand(attended)
 
-        scale = self.layer_scale.view(1, -1, 1, 1)
+        scale = self.effective_layer_scale().view(1, -1, 1, 1)
         return x + scale * delta
 ```
 
@@ -542,6 +560,9 @@ parser.add_argument(
 parser.add_argument('--attention-dim', type=int, default=128)
 parser.add_argument('--attention-heads', type=int, default=4)
 parser.add_argument('--attention-sr-ratio', type=int, default=2)
+parser.add_argument('--attention-max-scale', type=float, default=1e-2)
+parser.add_argument('--attention-lr-scale', type=float, default=0.1)
+parser.add_argument('--attention-momentum', type=float, default=0.9)
 parser.add_argument('--seed', type=int, default=0)
 ```
 
@@ -566,6 +587,9 @@ attention
 attention_dim
 attention_heads
 attention_sr_ratio
+attention_max_scale
+attention_lr_scale
+attention_momentum
 seed
 ```
 
@@ -751,7 +775,8 @@ assert y.shape == x.shape
 y.mean().backward()
 assert module.reduce.weight.grad is not None
 assert module.expand.weight.grad is not None
-assert module.layer_scale.grad is not None
+assert module.layer_scale_logits.grad is not None
+assert module.effective_layer_scale().abs().max() <= 1e-2
 ```
 
 ### 11.3 完整模型测试
@@ -920,6 +945,9 @@ CLASSES=2
 ATTENTION_DIM=128
 ATTENTION_HEADS=4
 ATTENTION_SR_RATIO=2
+ATTENTION_MAX_SCALE=1e-2
+ATTENTION_LR_SCALE=0.1
+ATTENTION_MOMENTUM=0.9
 SEED=0
 ```
 
@@ -1040,6 +1068,9 @@ python train.py \
   --attention-dim ${ATTENTION_DIM} \
   --attention-heads ${ATTENTION_HEADS} \
   --attention-sr-ratio ${ATTENTION_SR_RATIO} \
+  --attention-max-scale ${ATTENTION_MAX_SCALE} \
+  --attention-lr-scale ${ATTENTION_LR_SCALE} \
+  --attention-momentum ${ATTENTION_MOMENTUM} \
   --seed ${SEED} \
   --exp-name ${EXP_NAME} \
   2>&1 | tee logs/${EXP_NAME}.log
@@ -1066,6 +1097,9 @@ ATTENTION=lite_sr_mhsa
 ATTENTION_DIM=128
 ATTENTION_HEADS=4
 ATTENTION_SR_RATIO=2
+ATTENTION_MAX_SCALE=1e-2
+ATTENTION_LR_SCALE=0.1
+ATTENTION_MOMENTUM=0.9
 SEED=0
 REMARK="lightweight bottleneck spatial-reduction MHSA"
 ```
@@ -1085,6 +1119,17 @@ nvidia-smi
 ---
 
 ## 16. Checkpoint 选择
+
+当前实现按实验名隔离 checkpoint：
+
+```text
+checkpoints/<EXP_NAME>/checkpoint_epoch1.pth
+...
+checkpoints/<EXP_NAME>/checkpoint_epoch5.pth
+```
+
+不同实验不再共同写入 `checkpoints/checkpoint_epochN.pth`，从而避免 baseline、
+smoke test 和 Attention 实验相互覆盖或被错误归档。
 
 当前 baseline 使用 5 个 epoch 中表现最好的 epoch 4 checkpoint。Attention 模型必须使用相同选择规则：
 
